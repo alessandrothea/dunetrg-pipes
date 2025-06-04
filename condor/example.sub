@@ -1,0 +1,11 @@
+executable              = runme.sh
+log                     = singularity.$(ClusterId).log
+error                   = singularity.$(ClusterId).$(ProcId).err
+output                  = singularity.$(ClusterId).$(ProcId).out
+should_transfer_files   = YES
+MY.JobFlavour           = "longlunch"
+output_destination      = root://eosuser.cern.ch//eos/home-t/thea/dune_trigger/test/$(ClusterId)/
+transfer_output_files   = test_file.log
+MY.XRDCP_CREATE_DIR     = True
+MY.SingularityImage     = "/cvmfs/singularity.opensciencegrid.org/fermilab/fnal-dev-sl7:latest"
+queue
