@@ -1,1 +1,4 @@
 scratch/
+condor/test
+.venv
+*.log

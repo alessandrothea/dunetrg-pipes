@@ -1,11 +1,13 @@
 executable              = runme.sh
+arguments               = -s one o two
 log                     = singularity.$(ClusterId).log
 error                   = singularity.$(ClusterId).$(ProcId).err
 output                  = singularity.$(ClusterId).$(ProcId).out
 should_transfer_files   = YES
 MY.JobFlavour           = "longlunch"
+transfer_input_files    = root://eosuser.cern.ch//eos/home-t/thea/dune_trigger/eminus_snbbkg_hd/eminus_snbbkg_detsim_09.root 
 output_destination      = root://eosuser.cern.ch//eos/home-t/thea/dune_trigger/test/$(ClusterId)/
-transfer_output_files   = test_file.log
+# transfer_output_files   = test_file.log
 MY.XRDCP_CREATE_DIR     = True
-MY.SingularityImage     = "/cvmfs/singularity.opensciencegrid.org/fermilab/fnal-dev-sl7:latest"
+MY.SingularityImage     = "/cvmfs/unpacked.cern.ch/registry.hub.docker.com/fermilab/fnal-dev-sl7:latest"
 queue
