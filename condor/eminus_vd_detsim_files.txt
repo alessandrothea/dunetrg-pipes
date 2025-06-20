@@ -1,0 +1,10 @@
+- /eos/home-t/thea/dune_trigger/test/eminus_vd_detsim_797281/job_0/eminus_vd_detsim_0.root
+- /eos/home-t/thea/dune_trigger/test/eminus_vd_detsim_797281/job_1/eminus_vd_detsim_1.root
+- /eos/home-t/thea/dune_trigger/test/eminus_vd_detsim_797281/job_2/eminus_vd_detsim_2.root
+- /eos/home-t/thea/dune_trigger/test/eminus_vd_detsim_797281/job_3/eminus_vd_detsim_3.root
+- /eos/home-t/thea/dune_trigger/test/eminus_vd_detsim_797281/job_4/eminus_vd_detsim_4.root
+- /eos/home-t/thea/dune_trigger/test/eminus_vd_detsim_797281/job_5/eminus_vd_detsim_5.root
+- /eos/home-t/thea/dune_trigger/test/eminus_vd_detsim_797281/job_6/eminus_vd_detsim_6.root
+- /eos/home-t/thea/dune_trigger/test/eminus_vd_detsim_797281/job_7/eminus_vd_detsim_7.root
+- /eos/home-t/thea/dune_trigger/test/eminus_vd_detsim_797281/job_8/eminus_vd_detsim_8.root
+- /eos/home-t/thea/dune_trigger/test/eminus_vd_detsim_797281/job_9/eminus_vd_detsim_9.root

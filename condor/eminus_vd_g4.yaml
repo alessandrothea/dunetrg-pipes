@@ -1,13 +1,14 @@
 ---
 # larsoft_runner: '${HOME}/work/dune/dune-trg-sandbox/condor/run_larsoft_job.sh'
-label: 'eminus_vd_gen'
+label: 'eminus_vd_g4'
 larsoft_runner: '${HOME}/work/dune/trigsim_mark01/lar_wrap.sh'
-# work_area: '${HOME}/work/dune/trigsim_mark01/'
-config_fcl: '${HOME}/work/dune/dune-trg-sandbox/fcl/vdtest/trig_studies_eminus_random_vd.fcl'
+config_fcl: '${HOME}/work/dune/dune-trg-sandbox/fcl/vdtest/standard_g4_dunevd10kt_1x8x6_3view_30deg.fcl'
 n_events : 10000
-output_file_prefix : 'eminus_gen_vd'
+n_jobs_per_file : 100
+output_file_prefix : 'eminus_vd_g4'
 eos_output_folder : '/eos/home-t/thea/dune_trigger/test'
-# eos_input_files:
+eos_input_files:
+  - "/eos/home-t/thea/dune_trigger/test/738486/job_0/eminus_gen_vd_0.root"
 #    - "/eos/home-t/thea/dune_trigger/eminus_snbbkg_vd/eminus_vd_gen.root"
 #    - "/eos/home-t/thea/dune_trigger/eminus_snbbkg_vd/eminus_vd_tpg_10_all.root"
 
