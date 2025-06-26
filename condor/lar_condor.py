@@ -23,7 +23,7 @@ class JobConfig(BaseModel):
 
     n_events: Optional[int] = -1
     n_jobs_per_file: Optional[int] = 1
-    output_file_prefix: Optional[str]
+    output_file_prefix: Optional[str] = None
     eos_output_folder : DirectoryPath
     eos_input_files: Optional[List[FilePath]] = None
 
@@ -89,7 +89,6 @@ def cli(card_file, submit):
     credd = htcondor.Credd()
     credd.add_user_cred(htcondor.CredTypes.Kerberos, None)
     
-    
     sub = htcondor.Submit({
         'executable': str(cfg.larsoft_runner),
         'arguments' : "$(job_args)",
@@ -138,8 +137,8 @@ def cli(card_file, submit):
             if cfg.n_jobs_per_file != 1:
                 job_args += ['--nskip', k*n_events_per_job]
 
-            if not cfg.output_file_prefix is None:
-                job_args += ['-o', f'{cfg.output_file_prefix}_{job_index}.root']   
+            output_file_prefix = cfg.output_file_prefix if not cfg.output_file_prefix is None else cfg.label
+            job_args += ['-o', f'{output_file_prefix}_{job_index}.root']   
             
             item_extra.update({
                     'job_args': ' '.join([ str(a) for a in job_args])
