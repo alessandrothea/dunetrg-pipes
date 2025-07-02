@@ -7,7 +7,7 @@ import yaml
 from pathlib import Path
 import os.path
 
-from pydantic import BaseModel, FilePath, DirectoryPath, field_validator, model_validator
+from pydantic import BaseModel, FilePath, DirectoryPath, field_validator, model_validator, ValidationError
 from typing import Optional, List
 import htcondor
 
@@ -70,7 +70,15 @@ def cli(card_file, submit):
     with open(card_file, 'r') as stream:
         data_loaded = yaml.safe_load(stream)
 
-    cfg = JobConfig(**data_loaded)
+    cfg = None
+    try:
+        cfg = JobConfig(**data_loaded)
+    except ValidationError as e:
+        print('[red]ERROR Validating the job card[/red]')
+        print()
+        print(e)
+        print()
+        raise SystemExit(-1)
 
     args = ['-c', cfg.config_fcl]
 
