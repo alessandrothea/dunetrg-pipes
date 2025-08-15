@@ -144,6 +144,16 @@ EOF
 
 chmod a+x lar_wrap.sh
 
+cat > dunesw_wrap.sh << EOF
+#!/bin/bash
+
+HERE=\$(cd \$(dirname \$(readlink -f \${BASH_SOURCE})) && pwd)
+
+source \${HERE}/setup_dunesw.sh
+exec "\$@"
+EOF
+
+chmod a+x lar_wrap.sh
 
 echo "I am here : $PWD"
 source localProducts_larsoft_${DUNESW_VERSION}_${DUNESW_QUALS/:/_}/setup
