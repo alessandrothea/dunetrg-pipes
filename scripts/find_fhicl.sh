@@ -32,9 +32,6 @@ if [ ! -d "srcs" ]; then
   echo "NOTE: I do not see a 'srcs' directory in $PWD"
   echo "I will continue to search \$FHICL_FILE_PATH,"
   echo "but you will unlikely have write access to the file."
-  echo "Check out a version of uboonecode using the instructions"
-  echo "Provided here: " 
-  echo "https://cdcvs.fnal.gov/redmine/projects/uboonecode/wiki/Uboone_guide"
   echo "***************************************"
 
 
