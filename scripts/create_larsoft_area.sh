@@ -128,7 +128,7 @@ mrbslp
 unset HERE
 
 #
-alias dunesw-build='ninja -C \${MRB_BUILDDIR} -k 0 install | grep -v "Up-to-date" '
+alias dsb='ninja -C \${MRB_BUILDDIR} -k 0 install | grep -v "Up-to-date" '
 
 EOF
 
@@ -159,10 +159,10 @@ echo "I am here : $PWD"
 source localProducts_larsoft_${DUNESW_VERSION}_${DUNESW_QUALS/:/_}/setup
 
 # Check out dune trigger
-mrb g -t ${DUNESW_VERSION} dunesw
-mrb g -t ${DUNESW_VERSION} dunecore
-mrb g -t ${DUNESW_VERSION} duneprototypes
-mrb g -t ${DUNESW_VERSION} duneopdet
+# mrb g -t ${DUNESW_VERSION} dunesw
+# mrb g -t ${DUNESW_VERSION} dunecore
+# mrb g -t ${DUNESW_VERSION} duneprototypes
+# mrb g -t ${DUNESW_VERSION} duneopdet
 
 mrb g -t ${DUNESW_VERSION} dunetrigger
 
