@@ -165,6 +165,7 @@ for i in "${!sequence[@]}"; do
     cfg_file=${stages[$stage_key]}
     out_dir=${base_dir}/${stage_key} 
     out_file=${out_dir}/${stage_key}_${pipeline_name}.root
+    out_tfs_file=${out_dir}/${stage_key}_${pipeline_name}_hist.root
 
     if [[ $i -lt $skip_stages ]]; then
         echo "   <skipping>"
@@ -174,7 +175,7 @@ for i in "${!sequence[@]}"; do
     mkdir -p ${out_dir}    
     cd ${out_dir}
 
-    cmd_line="lar -c ${cfg_file} ${src_file_opt} -o ${out_file} -n ${k} ${n_skip_opt}"
+    cmd_line="lar -c ${cfg_file} ${src_file_opt} -o ${out_file} -T ${out_tfs_file} -n ${k} ${n_skip_opt}"
     echo -e "Command '${cmd_line}'"
 
     if ((${DRY_RUN} == 1)); then

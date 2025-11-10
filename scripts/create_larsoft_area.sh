@@ -102,6 +102,13 @@ setup dunesw ${DUNESW_VERSION} -q ${DUNESW_QUALS}
 
 mrb newDev -v ${DUNESW_VERSION} -q ${DUNESW_QUALS}
 
+# Create a virtual environment
+python -m venv .venv
+
+source .venv/bin/activate
+
+# Install python packages
+pip install pyyaml
 
 cat > setup_dunesw.sh << EOF
 #!/bin/bash
@@ -123,6 +130,9 @@ source \${HERE}/localProducts_larsoft_*/setup
 
 # Set up the MRB source local products
 mrbslp
+
+# Activate the virtual environment
+source \${HERE}/.venv/bin/activate
 
 # Cleanup
 unset HERE
