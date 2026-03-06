@@ -150,13 +150,16 @@ def main() -> None:
 
     parser = get_parser_for(args.config)
     cfg = parser.load(args.config)
+    print(cfg)
 
     # Scalars with defaults if missing
-    pipeline_name = str(cfg.get("pipeline_name", "") or "")
-    lar_area      = str(cfg.get("lar_area", "") or "")
-    n_ev          = int(cfg.get("n_ev", 0) or 0)
-    n_skip        = int(cfg.get("n_skip", 0) or 0)        # default 0 if missing
-    skip_stages   = int(cfg.get("skip_stages", 0) or 0)
+    pipeline_name        = str(cfg.get("pipeline_name", "") or "")
+    lar_area             = str(cfg.get("lar_area", "") or "")
+    n_ev                 = int(cfg.get("n_ev", 0) or 0)
+    n_skip               = int(cfg.get("n_skip", 0) or 0)        # default 0 if missing
+    skip_stages          = int(cfg.get("skip_stages", 0) or 0)
+    keep_last_hist_file = bool(cfg.get("keep_last_hist_file", True))
+    keep_last_art_file  = bool(cfg.get("keep_last_art_file", True))
 
     # input_files: optional string or list
     input_files = as_input_files(cfg.get("input_files"))
@@ -181,6 +184,8 @@ def main() -> None:
     print(f"  n_ev          = {n_ev}")
     print(f"  n_skip        = {n_skip}")
     print(f"  skip_stages   = {skip_stages}")
+    print(f"  keep_last_hist_file    = {keep_last_hist_file}")
+    print(f"  keep_last_art_file    = {keep_last_art_file}")
     print()
 
     print("Stages map (in file order):")
@@ -212,13 +217,14 @@ def main() -> None:
 
     base_dir=os.getcwd()
 
+    last_stage = len(sequence)-1
     for i,s in enumerate(sequence):
+
         print(f">>> Stage {i}: {s} <<< ")
 
-        
-
+        # Prepare command arguments
         if ( i == 0 ):
-            k=n_ev
+            nev_opt=f"-n {n_ev}"
 
             # No input files, generation pipeline
             if (len(input_files)) == 0:
@@ -228,7 +234,7 @@ def main() -> None:
                 src_file_opt = build_input_files_args(input_files)
                 n_skip_opt=f"--n-skip {n_skip}"
         else:
-            k='-1'
+            nev_opt="-n -1"
             src_file_opt=f"-s {out_root_file}"
             n_skip_opt=''
 
@@ -237,13 +243,29 @@ def main() -> None:
         out_root_file=f"{out_dir}/{s}_{pipeline_name}.root"
         out_tfs_file=f"{out_dir}/{s}_{pipeline_name}_hist.root"
 
+
+        out_root_opt = f"-o {out_root_file}" if (not last_stage or keep_last_art_file) else ''
+        out_tfs_opt = f"-T {out_tfs_file}" if (not last_stage or keep_last_hist_file) else ''
+
+
         if ( i < skip_stages):
             print(f" <skipping {i}<skip_stages ({skip_stages})> ")
             continue
 
         os.makedirs(out_dir, exist_ok=True)
         os.chdir(out_dir)
-        cmd_line=f"lar -c {cfg_file} {src_file_opt} -o {out_root_file} -T {out_tfs_file} -n {k} {n_skip_opt}"
+        cmd_tokens = [
+            'lar',
+            f'-c {cfg_file}',
+            src_file_opt,
+            nev_opt,
+            n_skip_opt,
+            out_root_opt,
+            out_tfs_opt,
+        ]
+        
+        # cmd_line=f"lar -c {cfg_file} {src_file_opt} -o {out_root_file} -T {out_tfs_file} {nev_opt} {n_skip_opt}"
+        cmd_line = ' '.join(cmd_tokens)
         print(f"Command: '{cmd_line}'")
         print()
 
