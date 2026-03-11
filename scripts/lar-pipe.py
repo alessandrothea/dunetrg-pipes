@@ -219,7 +219,7 @@ def main() -> None:
 
     last_stage = len(sequence)-1
     for i,s in enumerate(sequence):
-
+        is_last_stage = (i==last_stage)
         print(f">>> Stage {i}: {s} <<< ")
 
         # Prepare command arguments
@@ -244,8 +244,9 @@ def main() -> None:
         out_tfs_file=f"{out_dir}/{s}_{pipeline_name}_hist.root"
 
 
-        out_root_opt = f"-o {out_root_file}" if (not last_stage or keep_last_art_file) else ''
-        out_tfs_opt = f"-T {out_tfs_file}" if (not last_stage or keep_last_hist_file) else ''
+
+        out_root_opt = f"-o {out_root_file}" if ((not is_last_stage) or keep_last_art_file) else ''
+        out_tfs_opt = f"-T {out_tfs_file}" if ((not is_last_stage) or keep_last_hist_file) else ''
 
 
         if ( i < skip_stages):
