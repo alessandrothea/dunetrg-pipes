@@ -198,23 +198,6 @@ def main() -> None:
         print(f"  -> {s}")
     print()
 
-    # print(f"Built input args: {len(input_args)//2} item(s)")
-    # print(f"  {' '.join(input_args) if input_args else '(none)'}")
-    # print()
-
-    # if args.dry_run:
-    #     print("DRY-RUN: planning to execute stages in the listed order.")
-    #     for s in sequence:
-    #         fcl = stages.get(s)
-    #         if fcl is None:
-    #             print(f"  WARNING: sequence item '{s}' not found in stages")
-    #             continue
-    #         print(
-    #             f'  your_command --stage "{s}" --fcl "{fcl}" '
-    #             f'-p "{pipeline_name}" {" ".join(input_args)}'
-    #         )
-    #     print("\nNo commands were executed (dry-run).")
-
     base_dir=os.getcwd()
 
     last_stage = len(sequence)-1
