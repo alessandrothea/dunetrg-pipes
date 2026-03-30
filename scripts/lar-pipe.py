@@ -154,7 +154,6 @@ def main() -> None:
 
     # Scalars with defaults if missing
     pipeline_name        = str(cfg.get("pipeline_name", "") or "")
-    lar_area             = str(cfg.get("lar_area", "") or "")
     n_ev                 = int(cfg.get("n_ev", 0) or 0)
     n_skip               = int(cfg.get("n_skip", 0) or 0)        # default 0 if missing
     skip_stages          = int(cfg.get("skip_stages", 0) or 0)
@@ -179,7 +178,6 @@ def main() -> None:
     # Output
     print("Standalone variables:")
     print(f"  pipeline_name = {pipeline_name}")
-    print(f"  lar_area      = {lar_area}")
     print(f"  input_files   = {' '.join(input_files) if input_files else '(none)'}")
     print(f"  n_ev          = {n_ev}")
     print(f"  n_skip        = {n_skip}")
