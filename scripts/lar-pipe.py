@@ -231,13 +231,25 @@ def run_loop_stage(
     """
     template      = stage_def["template"]
     n_iter        = int(stage_def.get("n_iter", 1))
+    skip_iter     = int(stage_def.get("skip_iter", 0) or 0)
     gen_cmd_tmpl  = stage_def.get("generator_command")   # optional
     delete_inter  = bool(stage_def.get("delete_intermediate_products", False))
 
     template_path = find_in_FHICL_FILE_PATH(template, dry_run=dry_run)
 
+    # For skipped iterations we assume the output ROOT already exists in the
+    # per-iteration subdirectory from a previous run.  Wire up src_file_opt to
+    # point at the last skipped iteration's output so the first executed
+    # iteration receives the correct input.
+    if skip_iter > 0:
+        last_skipped_dir = f"{out_dir}/{skip_iter - 1}"
+        last_skipped_root = f"{last_skipped_dir}/{stage_name}_{pipeline_name}.root"
+        iter_src_opt = f"-s {last_skipped_root}"
+        print(f"  <skipping iterations 0..{skip_iter - 1}; assuming input: {last_skipped_root}>")
+    else:
+        iter_src_opt = src_file_opt
+
     prev_root_file: Optional[str] = None
-    iter_src_opt = src_file_opt
 
     for i in range(n_iter):
         iter_is_last = (i == n_iter - 1)
@@ -253,6 +265,10 @@ def run_loop_stage(
         else:
             iter_root = f"{iter_dir}/{stage_name}_{pipeline_name}.root"
             iter_hist = f"{iter_dir}/{stage_name}_{pipeline_name}_hist.root"
+
+        if i < skip_iter:
+            prev_root_file = iter_root
+            continue
 
         if not dry_run:
             os.makedirs(iter_dir, exist_ok=True)
@@ -324,6 +340,39 @@ def run_loop_stage(
 # CLI & main
 # ----------------------------
 
+def apply_overrides(cfg: Dict[str, Any], params: List[str]) -> None:
+    """Apply KEY=VALUE overrides to cfg in-place. KEY may use dot notation."""
+    try:
+        import yaml as _yaml
+        _loads = _yaml.safe_load
+    except ImportError:
+        import json as _json
+        def _loads(s):
+            try:
+                return _json.loads(s)
+            except _json.JSONDecodeError:
+                return s  # fall back to plain string
+
+    for param in params:
+        if "=" not in param:
+            sys.stderr.write(f"Error: --param '{param}' must be in KEY=VALUE form.\n")
+            sys.exit(1)
+        key_path, _, raw_value = param.partition("=")
+        keys = key_path.split(".")
+        value = _loads(raw_value)
+
+        node = cfg
+        for k in keys[:-1]:
+            if not isinstance(node, dict) or k not in node:
+                sys.stderr.write(
+                    f"Error: --param '{param}': key path '{key_path}' not found in config.\n"
+                )
+                sys.exit(1)
+            node = node[k]
+        node[keys[-1]] = value
+        print(f"  [override] {key_path} = {value!r}")
+
+
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
         prog="lar-pipe",
@@ -333,6 +382,19 @@ def parse_args() -> argparse.Namespace:
         "-n", "--dry-run",
         action="store_true",
         help="Do not execute anything; only print what would be done"
+    )
+    p.add_argument(
+        "-p", "--param",
+        metavar="KEY=VALUE",
+        action="append",
+        default=[],
+        dest="params",
+        help=(
+            "Override a config parameter. KEY uses dot notation for nested fields "
+            "(e.g. -p n_ev=10 or -p stages.detsim_loop.skip_iter=5). "
+            "VALUE is parsed as YAML so types are inferred (int, bool, float, string). "
+            "May be repeated."
+        ),
     )
     p.add_argument(
         "config",
@@ -346,6 +408,7 @@ def main() -> None:
 
     parser = get_parser_for(args.config)
     cfg = parser.load(args.config)
+    apply_overrides(cfg, args.params)
 
     # Scalars with defaults if missing
     pipeline_name        = str(cfg.get("pipeline_name", "") or "")
