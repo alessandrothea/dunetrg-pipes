@@ -107,8 +107,10 @@ python -m venv .venv
 
 source .venv/bin/activate
 
+# TODO: move pip packages to a requirements.txt files
 # Install python packages
 pip install pyyaml
+pip install rich
 
 cat > setup_dunesw.sh << EOF
 #!/bin/bash

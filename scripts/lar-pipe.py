@@ -124,6 +124,27 @@ def build_input_files_args(files: Sequence[str]) -> List[str]:
     return ' '.join(args)
 
 
+def resolve_config_path(name: str) -> str:
+    """Resolve a pipeline datacard filename via LAR_PIPE_PATH.
+    Absolute paths and paths that already exist relative to CWD are used directly."""
+    if os.path.isabs(name) or os.path.isfile(name):
+        return name
+    lar_pipe_path = os.environ.get("LAR_PIPE_PATH", "")
+    for directory in lar_pipe_path.split(":"):
+        if not directory:
+            continue
+        candidate = os.path.join(directory, name)
+        if os.path.isfile(candidate):
+            return candidate
+    searched = [d for d in lar_pipe_path.split(":") if d]
+    locations = ["<CWD>"] + searched
+    sys.stderr.write(
+        f"Error: config '{name}' not found in: {', '.join(locations)}\n"
+        f"  Set LAR_PIPE_PATH to a colon-separated list of datacard directories.\n"
+    )
+    sys.exit(1)
+
+
 def find_in_FHICL_FILE_PATH(filename: str, dry_run: bool = False) -> str:
     """Search FHICL_FILE_PATH (colon-separated) for a template FCL file.
     In dry-run mode returns a placeholder string if the file is not found."""
@@ -271,7 +292,9 @@ def run_loop_stage(
             continue
 
         if not dry_run:
-            os.makedirs(iter_dir, exist_ok=True)
+            if not os.path.isdir(iter_dir):
+                os.makedirs(iter_dir)
+                print(f"  [iter {i}] Created: {iter_dir}")
 
         # --- FCL generation ---
         if gen_cmd_tmpl is not None:
@@ -340,6 +363,17 @@ def run_loop_stage(
 # CLI & main
 # ----------------------------
 
+def _stage_header(i: int, total: int, name: str, stage_def: Any) -> str:
+    """Format a stage banner with a separation bar."""
+    if isinstance(stage_def, dict):
+        tag = f"[loop \u00d7{stage_def.get('n_iter', '?')}]"
+    else:
+        tag = "[simple]"
+    label = f"  Stage {i + 1}/{total}: {name}  {tag}  "
+    bar = "\u2500" * max(60, len(label))
+    return f"\n{bar}\n{label}\n{bar}"
+
+
 def apply_overrides(cfg: Dict[str, Any], params: List[str]) -> None:
     """Apply KEY=VALUE overrides to cfg in-place. KEY may use dot notation."""
     try:
@@ -406,8 +440,9 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
 
-    parser = get_parser_for(args.config)
-    cfg = parser.load(args.config)
+    config_path = resolve_config_path(args.config)
+    parser = get_parser_for(config_path)
+    cfg = parser.load(config_path)
     apply_overrides(cfg, args.params)
 
     # Scalars with defaults if missing
@@ -464,12 +499,13 @@ def main() -> None:
 
     for i, s in enumerate(sequence):
         is_last_stage = (i == last_stage_idx)
-        print(f">>> Stage {i}: {s} <<<")
 
         stage_def = stages.get(s)
         if stage_def is None:
             sys.stderr.write(f"Error: stage '{s}' listed in sequence but not defined in stages.\n")
             sys.exit(1)
+
+        print(_stage_header(i, len(sequence), s, stage_def))
 
         is_loop = isinstance(stage_def, dict)
 
@@ -499,10 +535,12 @@ def main() -> None:
             out_tfs_file  = f"{out_dir}/{s}_{pipeline_name}_hist.root"
 
         if i < skip_stages:
-            print(f"  <skipping: i={i} < skip_stages={skip_stages}>")
+            print(f"  (skipped — output assumed at {out_root_file})")
             continue
 
-        os.makedirs(out_dir, exist_ok=True)
+        if not os.path.isdir(out_dir):
+            os.makedirs(out_dir)
+            print(f"  Created: {out_dir}")
         os.chdir(out_dir)
 
         if is_loop:
