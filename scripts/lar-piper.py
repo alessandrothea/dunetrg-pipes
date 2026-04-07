@@ -303,7 +303,7 @@ def _print_summary(
                 skip_mark = " [dim](after last_stage)[/dim]"
             else:
                 skip_mark = ""
-            stg_table.add_row(str(idx + 1), name + skip_mark, stype, sconf, style=row_style)
+            stg_table.add_row(str(idx), name + skip_mark, stype, sconf, style=row_style)
         _console.print(stg_table)
     else:
         # Plain fallback
@@ -332,9 +332,9 @@ def _print_summary(
             else:
                 marker = ""
             if isinstance(v, dict):
-                print(f"  {idx+1}. {name}  [loop ×{v.get('n_iter','?')}]{marker}")
+                print(f"  {idx}. {name}  [loop ×{v.get('n_iter','?')}]{marker}")
             else:
-                print(f"  {idx+1}. {name}  → {v}{marker}")
+                print(f"  {idx}. {name}  → {v}{marker}")
         print()
 
 
