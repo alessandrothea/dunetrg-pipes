@@ -1,4 +1,4 @@
-# lar-pipe.py
+# lar-piper.py
 
 A pipeline runner for LArSoft simulation chains. It reads a YAML (or JSON) datacard that describes a sequence of `lar` jobs, wires their inputs and outputs together automatically, and executes them in order. A dry-run mode prints every command without executing anything.
 
@@ -13,7 +13,7 @@ A pipeline runner for LArSoft simulation chains. It reads a YAML (or JSON) datac
 ## Usage
 
 ```
-lar-pipe.py [-n] [-p KEY=VALUE ...] <config.yaml>
+lar-piper.py [-n] [-p KEY=VALUE ...] <config.yaml>
 ```
 
 | Flag | Description |
@@ -28,7 +28,7 @@ lar-pipe.py [-n] [-p KEY=VALUE ...] <config.yaml>
 | Key | Type | Description |
 |-----|------|-------------|
 | `pipeline_name` | string | Used as a suffix in all output file names |
-| `n_ev` | int | Number of events for the first stage (`-n`) |
+| `n_events` | int | Number of events for the first stage (`-n`) |
 | `n_skip` | int | Events to skip in the first stage (`--n-skip`), only when `input_files` is set |
 | `first_stage` | int | Index of the first stage to execute; earlier stages are skipped (default `0`) |
 | `last_stage` | int | Index of the last stage to execute; later stages are not run (default last) |
@@ -126,7 +126,7 @@ Each iteration runs in its own subdirectory and writes its ROOT output there:
 
 ```yaml
 pipeline_name: "vd_marley_1x8x14"
-n_ev: 1
+n_events: 1
 n_skip: 0
 first_stage: 2
 keep_last_hist_file: True
@@ -156,16 +156,16 @@ Any config value can be overridden on the command line without editing the datac
 
 ```bash
 # Change event count
-lar-pipe.py -p n_ev=10 pipeline.yaml
+lar-piper.py -p n_events=10 pipeline.yaml
 
 # Resume a loop from iteration 36
-lar-pipe.py -p stages.detsim_loop.skip_iter=36 pipeline.yaml
+lar-piper.py -p stages.detsim_loop.skip_iter=36 pipeline.yaml
 
 # Combine multiple overrides with dry-run
-lar-pipe.py -n -p skip_stages=2 -p stages.detsim_loop.n_iter=5 pipeline.yaml
+lar-piper.py -n -p skip_stages=2 -p stages.detsim_loop.n_iter=5 pipeline.yaml
 
 # Override a boolean
-lar-pipe.py -p keep_last_art_file=False pipeline.yaml
+lar-piper.py -p keep_last_art_file=False pipeline.yaml
 ```
 
 ## Output structure

@@ -85,7 +85,7 @@ source <target_dir>/setup_dunesw.sh
 
 Reads a YAML or JSON datacard describing a sequence of `lar` stages, wires their inputs and outputs together automatically, and runs them in order. Produces coloured terminal output via `rich` (plain text fallback if `rich` is not installed).
 
-See [README-lar-pipe.md](../scripts/README-lar-pipe.md) for the full reference including the datacard format, loop stage FCL generation, and output layout.
+See [lar-piper.md](lar-piper.md) for the full reference including the datacard format, loop stage FCL generation, and output layout.
 
 ### Requirements
 
@@ -114,7 +114,7 @@ lar-piper.py [-n] [-s] [-p KEY=VALUE ...] <config.(yaml|json)>
 
 ```yaml
 pipeline_name: "my_pipeline"
-n_ev: 10
+n_events: 10
 
 stages:
   gen: "prodmarley_nue_cc_flat_dunevd10kt_1x8x14_3view_30deg.fcl"
@@ -130,7 +130,7 @@ sequence:
 | Key | Type | Description |
 |-----|------|-------------|
 | `pipeline_name` | string | Suffix used in all output file names |
-| `n_ev` | int | Events for the first stage (`-n`) |
+| `n_events` | int | Events for the first stage (`-n`) |
 | `skip_events` | int | Events to skip in the first stage (`--n-skip`), only when `input_files` is set |
 | `first_stage` | int | 0-based index of the first stage to execute (earlier stages are skipped, default `0`) |
 | `last_stage` | int | 0-based index of the last stage to execute (default last) |
@@ -167,7 +167,7 @@ Without `generator_command`, every `@loop_index@` token in the template is repla
 
 ```bash
 # Change event count
-lar-piper.py -p n_ev=10 pipeline.yaml
+lar-piper.py -p n_events=10 pipeline.yaml
 
 # Resume a loop from iteration 36
 lar-piper.py -p stages.detsim_loop.skip_iter=36 pipeline.yaml
@@ -218,7 +218,7 @@ lar_condor.py [-s] <card_file.yaml>
 label: "mu_minus_detsim"
 larsoft_runner: "/path/to/run_larsoft_job.sh"
 config_fcl: "detsim_dunevd10kt.fcl"
-n_events: 1000
+n_eventsents: 1000
 n_jobs_per_file: 10
 output_file_prefix: "detsim_output"
 eos_output_folder: "/eos/home-u/user/dune/output"
@@ -232,7 +232,7 @@ eos_input_files:
 | `label` | yes | Job label used in output paths |
 | `larsoft_runner` | yes | Executable script for the batch job |
 | `config_fcl` | yes | FCL configuration passed to `lar` |
-| `n_events` | yes (multi-job) | Total events per input file |
+| `n_eventsents` | yes (multi-job) | Total events per input file |
 | `n_jobs_per_file` | yes | Number of jobs spawned per input file |
 | `output_file_prefix` | yes | Base name for output ROOT files |
 | `eos_output_folder` | yes | Destination directory on EOS (must be under `/eos`) |
