@@ -427,6 +427,7 @@ def run_loop_stage(
         iter_src_opt = src_file_opt
 
     prev_root_file: Optional[str] = None
+    prev_hist_file: Optional[str] = None
 
     for i in range(n_iter):
         iter_is_last = (i == n_iter - 1)
@@ -437,6 +438,7 @@ def run_loop_stage(
 
         if i < skip_iter:
             prev_root_file = iter_root
+            prev_hist_file = iter_hist
             continue
 
         if not dry_run:
@@ -450,13 +452,20 @@ def run_loop_stage(
             full_gen_cmd = f"{gen_cmd} {template_path} > {iter_fcl}"
             _print(f"  [iter {i}] [cyan]gen[/cyan] (cmd): {full_gen_cmd}")
             if not dry_run:
-                result = subprocess.run(full_gen_cmd, shell=True)
-                if result.returncode != 0:
+                proc = subprocess.Popen(
+                    full_gen_cmd, shell=True,
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                    text=True,
+                )
+                for line in proc.stdout:
+                    print(line, end="")
+                rc = proc.wait()
+                if rc != 0:
                     _error(
                         f"generator command failed at iteration {i}.\n"
                         f"  Command: {full_gen_cmd}"
                     )
-                    sys.exit(result.returncode)
+                    sys.exit(rc)
         else:
             _print(
                 f"  [iter {i}] [cyan]gen[/cyan] (replace): "
@@ -489,7 +498,7 @@ def run_loop_stage(
             cfg_file=iter_fcl,
             src_file_opt=iter_src_opt,
             nev_opt=nev_opt,
-            skip_events_opt='',
+            skip_events_opt='',   # skip_events applies only to the first non-loop stage
             out_root_opt=out_root_opt,
             out_tfs_opt=out_tfs_opt,
             dry_run=dry_run,
@@ -503,7 +512,11 @@ def run_loop_stage(
                 _print(f"  [iter {i}] [dim red]\u2717 deleted:[/dim red] {prev_root_file}")
 
         prev_root_file = iter_root
+        prev_hist_file = iter_hist
         iter_src_opt   = f"-s {iter_root}"
+
+    if not dry_run:
+        os.chdir(out_dir)
 
     # Symlink the last iteration's outputs into out_dir so downstream stages
     # and the user can reference them at the stage level without knowing the
@@ -512,7 +525,7 @@ def run_loop_stage(
     link_hist = f"{out_dir}/{stage_name}_{pipeline_name}_hist.root"
     # Relative targets keep the directory structure portable.
     rel_root = os.path.relpath(prev_root_file, out_dir)
-    rel_hist = os.path.relpath(prev_root_file.replace(".root", "_hist.root"), out_dir)
+    rel_hist = os.path.relpath(prev_hist_file, out_dir)
 
     for link, rel_target in ((link_root, rel_root), (link_hist, rel_hist)):
         _print(f"  [dim]\u2192 symlink:[/dim] [cyan]{link}[/cyan] \u2192 [dim]{rel_target}[/dim]")
@@ -573,6 +586,17 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
+def build_first_event_opt(first_event: Any) -> str:
+    """Validate and convert a first_event config value to a lar -e option string."""
+    if not isinstance(first_event, dict):
+        return ''
+    missing = [k for k in ("run", "subrun", "event") if k not in first_event]
+    if missing:
+        _error(f"'first_event' is missing required keys: {missing}")
+        sys.exit(1)
+    return f"-e {first_event['run']}:{first_event['subrun']}:{first_event['event']}"
+
+
 # ----------------------------
 # Main
 # ----------------------------
@@ -591,10 +615,7 @@ def main() -> None:
     first_stage         = int(cfg.get("first_stage", 0) or 0)
     last_stage          = cfg.get("last_stage")   # None → default to full sequence
     first_event         = cfg.get("first_event")  # None, or dict with run/subrun/event
-    first_event_opt     = (
-        f"-e {first_event['run']}:{first_event['subrun']}:{first_event['event']}"
-        if isinstance(first_event, dict) else ''
-    )
+    first_event_opt     = build_first_event_opt(first_event)
     keep_last_hist_file = bool(cfg.get("keep_last_hist_file", True))
     keep_last_art_file  = bool(cfg.get("keep_last_art_file", True))
     input_files         = as_input_files(cfg.get("input_files"))

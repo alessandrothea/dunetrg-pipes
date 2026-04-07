@@ -2,3 +2,4 @@ scratch/
 condor/test
 .venv
 *.log
+__pycache__
