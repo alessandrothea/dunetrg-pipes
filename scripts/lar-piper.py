@@ -249,6 +249,7 @@ def _print_summary(
     input_files: List[str],
     n_ev: int,
     skip_events: int,
+    first_event: Any,
     first_stage: int,
     last_stage_run: int,
     keep_last_hist_file: bool,
@@ -266,7 +267,11 @@ def _print_summary(
         cfg_table.add_row("config",      config_path)
         cfg_table.add_row("input_files", ' '.join(input_files) if input_files else "[dim](none)[/dim]")
         cfg_table.add_row("n_ev",        str(n_ev))
-        cfg_table.add_row("skip_events",      str(skip_events))
+        cfg_table.add_row("skip_events",  str(skip_events))
+        cfg_table.add_row("first_event",
+            f"{first_event['run']}:{first_event['subrun']}:{first_event['event']}"
+            if isinstance(first_event, dict) else "[dim](none)[/dim]"
+        )
         cfg_table.add_row("first_stage", str(first_stage))
         cfg_table.add_row("last_stage",  str(last_stage_run))
         cfg_table.add_row("keep_last_art_file",  str(keep_last_art_file))
@@ -306,7 +311,12 @@ def _print_summary(
         print(f"config        = {config_path}")
         print(f"input_files   = {' '.join(input_files) if input_files else '(none)'}")
         print(f"n_ev          = {n_ev}")
-        print(f"skip_events        = {skip_events}")
+        print(f"skip_events   = {skip_events}")
+        fe_str = (
+            f"{first_event['run']}:{first_event['subrun']}:{first_event['event']}"
+            if isinstance(first_event, dict) else "(none)"
+        )
+        print(f"first_event   = {fe_str}")
         print(f"first_stage   = {first_stage}")
         print(f"last_stage    = {last_stage_run}")
         print(f"keep_last_art_file  = {keep_last_art_file}")
@@ -341,6 +351,7 @@ def run_lar_stage(
     out_tfs_opt: str,
     dry_run: bool,
     prefix: str = "",
+    first_event_opt: str = "",
 ) -> None:
     """Build and optionally execute a single `lar` command."""
     cmd_tokens = [
@@ -349,6 +360,7 @@ def run_lar_stage(
         src_file_opt,
         nev_opt,
         skip_events_opt,
+        first_event_opt,
         out_root_opt,
         out_tfs_opt,
     ]
@@ -388,6 +400,7 @@ def run_loop_stage(
     keep_last_art_file: bool,
     keep_last_hist_file: bool,
     dry_run: bool,
+    first_event_opt: str = "",
 ) -> str:
     """
     Execute a loop stage: run `lar` n_iter times with per-iteration FCLs.
@@ -481,6 +494,7 @@ def run_loop_stage(
             out_tfs_opt=out_tfs_opt,
             dry_run=dry_run,
             prefix=f"  [iter {i}] ",
+            first_event_opt=first_event_opt if i == skip_iter else '',
         )
 
         if delete_inter and prev_root_file is not None and not dry_run:
@@ -576,6 +590,11 @@ def main() -> None:
     skip_events         = int(cfg.get("skip_events", 0) or 0)
     first_stage         = int(cfg.get("first_stage", 0) or 0)
     last_stage          = cfg.get("last_stage")   # None → default to full sequence
+    first_event         = cfg.get("first_event")  # None, or dict with run/subrun/event
+    first_event_opt     = (
+        f"-e {first_event['run']}:{first_event['subrun']}:{first_event['event']}"
+        if isinstance(first_event, dict) else ''
+    )
     keep_last_hist_file = bool(cfg.get("keep_last_hist_file", True))
     keep_last_art_file  = bool(cfg.get("keep_last_art_file", True))
     input_files         = as_input_files(cfg.get("input_files"))
@@ -595,7 +614,7 @@ def main() -> None:
 
     _print_summary(
         pipeline_name, config_path, input_files,
-        n_ev, skip_events, first_stage, last_stage_run,
+        n_ev, skip_events, first_event, first_stage, last_stage_run,
         keep_last_hist_file, keep_last_art_file,
         stages, sequence,
     )
@@ -659,6 +678,7 @@ def main() -> None:
                 keep_last_art_file=keep_last_art_file,
                 keep_last_hist_file=keep_last_hist_file,
                 dry_run=args.dry_run,
+                first_event_opt=first_event_opt,
             )
         elif isinstance(stage_def, str):
             out_root_opt = f"-o {out_root_file}" if (not is_last_stage or keep_last_art_file) else ''
@@ -671,6 +691,7 @@ def main() -> None:
                 out_root_opt=out_root_opt,
                 out_tfs_opt=out_tfs_opt,
                 dry_run=args.dry_run,
+                first_event_opt=first_event_opt,
             )
         else:
             _error(
