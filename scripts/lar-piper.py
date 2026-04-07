@@ -579,6 +579,8 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument("-n", "--dry-run", action="store_true",
                    help="Print commands without executing")
+    p.add_argument("-s", "--summary", action="store_true",
+                   help="Print the pipeline summary table and exit")
     p.add_argument("-p", "--param", metavar="KEY=VALUE", action="append",
                    default=[], dest="params",
                    help="Override a config parameter (dot notation, repeatable)")
@@ -639,6 +641,9 @@ def main() -> None:
         keep_last_hist_file, keep_last_art_file,
         stages, sequence,
     )
+
+    if args.summary:
+        return
 
     base_dir      = os.getcwd()
     out_root_file: str = ""
