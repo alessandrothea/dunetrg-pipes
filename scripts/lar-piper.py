@@ -216,12 +216,14 @@ def _check_input_files(src_opt: str, dry_run: bool) -> None:
     files = [parts[j + 1] for j, p in enumerate(parts) if p == '-s' and j + 1 < len(parts)]
     if dry_run:
         for f in files:
-            if os.path.isfile(f):
+            if f.startswith(("http://", "https://", "root://", "xroot://")):
+                _print(f"  [blue]↗[/blue] input url:       [dim]{f}[/dim]")
+            elif os.path.isfile(f):
                 _print(f"  [green]✔[/green] input exists:    [dim]{f}[/dim]")
             else:
                 _print(f"  [yellow]✘ input not found: {f}[/yellow]")
         return
-    missing = [f for f in files if not os.path.isfile(f)]
+    missing = [f for f in files if not f.startswith(("http://", "https://", "root://", "xroot://")) and not os.path.isfile(f)]
     if missing:
         for f in missing:
             _error(f"input file not found: [bold]{f}[/bold]")
@@ -342,6 +344,9 @@ def _print_summary(
 # Stage execution helpers
 # ----------------------------
 
+_GDB_PREFIX = 'gdb -q -ex "catch throw" -ex run --args'
+
+
 def run_lar_stage(
     cfg_file: str,
     src_file_opt: str,
@@ -352,6 +357,7 @@ def run_lar_stage(
     dry_run: bool,
     prefix: str = "",
     first_event_opt: str = "",
+    use_gdb: bool = False,
 ) -> None:
     """Build and optionally execute a single `lar` command."""
     cmd_tokens = [
@@ -365,17 +371,20 @@ def run_lar_stage(
         out_tfs_opt,
     ]
     cmd_line = ' '.join(t for t in cmd_tokens if t)
+    if use_gdb:
+        cmd_line = f"{_GDB_PREFIX} {cmd_line}"
     _print(f"{prefix}[bold]$[/bold] [cyan]{cmd_line}[/cyan]")
 
     if dry_run:
         return
 
     with subprocess.Popen(
-        cmd_line.split(),
+        cmd_line,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
         bufsize=1,
+        shell=True,
     ) as proc:
         for line in proc.stdout:
             print(line, end="")   # raw larsoft output — intentionally unstyled
@@ -401,6 +410,7 @@ def run_loop_stage(
     keep_last_hist_file: bool,
     dry_run: bool,
     first_event_opt: str = "",
+    use_gdb: bool = False,
 ) -> str:
     """
     Execute a loop stage: run `lar` n_iter times with per-iteration FCLs.
@@ -504,6 +514,7 @@ def run_loop_stage(
             dry_run=dry_run,
             prefix=f"  [iter {i}] ",
             first_event_opt=first_event_opt if i == skip_iter else '',
+            use_gdb=use_gdb,
         )
 
         if delete_inter and prev_root_file is not None and not dry_run:
@@ -581,6 +592,8 @@ def parse_args() -> argparse.Namespace:
                    help="Print commands without executing")
     p.add_argument("-s", "--summary", action="store_true",
                    help="Print the pipeline summary table and exit")
+    p.add_argument("-g", "--gdb", action="store_true",
+                   help="Run lar inside gdb (catch throw + run)")
     p.add_argument("-p", "--param", metavar="KEY=VALUE", action="append",
                    default=[], dest="params",
                    help="Override a config parameter (dot notation, repeatable)")
@@ -650,6 +663,10 @@ def main() -> None:
 
     for i, s in enumerate(sequence):
         is_last_stage = (i == last_stage_run)
+        # keep_last_* flags suppress output only at the true end of the full
+        # sequence. If last_stage is explicitly set, all stages write their
+        # output files unconditionally.
+        apply_keep_flags = is_last_stage and last_stage is None
 
         stage_def = stages.get(s)
         if stage_def is None:
@@ -667,7 +684,7 @@ def main() -> None:
                 skip_events_opt   = ''
             else:
                 src_file_opt = build_input_files_args(input_files)
-                skip_events_opt   = f"--n-skip {skip_events}"
+                skip_events_opt   = f"--nskip {skip_events}"
         else:
             nev_opt      = "-n -1"
             src_file_opt = f"-s {out_root_file}"
@@ -700,15 +717,16 @@ def main() -> None:
                 out_dir=out_dir,
                 src_file_opt=src_file_opt,
                 nev_opt=nev_opt,
-                is_last_stage=is_last_stage,
+                is_last_stage=apply_keep_flags,
                 keep_last_art_file=keep_last_art_file,
                 keep_last_hist_file=keep_last_hist_file,
                 dry_run=args.dry_run,
                 first_event_opt=first_event_opt,
+                use_gdb=args.gdb,
             )
         elif isinstance(stage_def, str):
-            out_root_opt = f"-o {out_root_file}" if (not is_last_stage or keep_last_art_file) else ''
-            out_tfs_opt  = f"-T {out_tfs_file}"  if (not is_last_stage or keep_last_hist_file) else ''
+            out_root_opt = f"-o {out_root_file}" if (not apply_keep_flags or keep_last_art_file) else ''
+            out_tfs_opt  = f"-T {out_tfs_file}"  if (not apply_keep_flags or keep_last_hist_file) else ''
             run_lar_stage(
                 cfg_file=stage_def,
                 src_file_opt=src_file_opt,
@@ -718,6 +736,7 @@ def main() -> None:
                 out_tfs_opt=out_tfs_opt,
                 dry_run=args.dry_run,
                 first_event_opt=first_event_opt,
+                use_gdb=args.gdb,
             )
         else:
             _error(

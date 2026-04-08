@@ -13,12 +13,14 @@ A pipeline runner for LArSoft simulation chains. It reads a YAML (or JSON) datac
 ## Usage
 
 ```
-lar-piper.py [-n] [-p KEY=VALUE ...] <config.yaml>
+lar-piper.py [-n] [-s] [-g] [-p KEY=VALUE ...] <config.yaml>
 ```
 
 | Flag | Description |
 |------|-------------|
 | `-n`, `--dry-run` | Print commands without executing |
+| `-s`, `--summary` | Print the pipeline summary table and exit |
+| `-g`, `--gdb` | Run each `lar` invocation inside gdb (`catch throw` + `run`) |
 | `-p KEY=VALUE` | Override any config parameter (repeatable) |
 
 ## Datacard format
@@ -29,12 +31,12 @@ lar-piper.py [-n] [-p KEY=VALUE ...] <config.yaml>
 |-----|------|-------------|
 | `pipeline_name` | string | Used as a suffix in all output file names |
 | `n_events` | int | Number of events for the first stage (`-n`) |
-| `n_skip` | int | Events to skip in the first stage (`--n-skip`), only when `input_files` is set |
+| `skip_events` | int | Events to skip in the first stage (`--nskip`), only when `input_files` is set |
 | `first_stage` | int | Index of the first stage to execute; earlier stages are skipped (default `0`) |
 | `last_stage` | int | Index of the last stage to execute; later stages are not run (default last) |
 | `keep_last_art_file` | bool | Write the ROOT art file for the last stage (default `True`) |
 | `keep_last_hist_file` | bool | Write the histogram ROOT file for the last stage (default `True`) |
-| `input_files` | string or list | External input file(s) for the first stage; omit for generation pipelines |
+| `input_files` | string or list | External input file(s) for the first stage; omit for generation pipelines. Accepts local paths or URLs (`http://`, `https://`, `root://`, `xroot://`) |
 | `stages` | mapping | Stage definitions (see below) |
 | `sequence` | list | Ordered list of stage names to execute |
 
@@ -127,7 +129,7 @@ Each iteration runs in its own subdirectory and writes its ROOT output there:
 ```yaml
 pipeline_name: "vd_marley_1x8x14"
 n_events: 1
-n_skip: 0
+skip_events: 0
 first_stage: 2
 keep_last_hist_file: True
 keep_last_art_file: True

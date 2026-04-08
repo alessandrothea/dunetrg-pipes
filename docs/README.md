@@ -101,13 +101,14 @@ See [lar-piper.md](lar-piper.md) for the full reference including the datacard f
 ### Usage
 
 ```bash
-lar-piper.py [-n] [-s] [-p KEY=VALUE ...] <config.(yaml|json)>
+lar-piper.py [-n] [-s] [-g] [-p KEY=VALUE ...] <config.(yaml|json)>
 ```
 
 | Flag | Description |
 |------|-------------|
 | `-n, --dry-run` | Print all commands without executing |
 | `-s, --summary` | Print the pipeline summary table and exit |
+| `-g, --gdb` | Run each `lar` invocation inside gdb (`catch throw` + `run`) |
 | `-p KEY=VALUE` | Override any config key (dot notation, repeatable) |
 
 ### Minimal datacard
@@ -131,12 +132,12 @@ sequence:
 |-----|------|-------------|
 | `pipeline_name` | string | Suffix used in all output file names |
 | `n_events` | int | Events for the first stage (`-n`) |
-| `skip_events` | int | Events to skip in the first stage (`--n-skip`), only when `input_files` is set |
+| `skip_events` | int | Events to skip in the first stage (`--nskip`), only when `input_files` is set |
 | `first_stage` | int | 0-based index of the first stage to execute (earlier stages are skipped, default `0`) |
 | `last_stage` | int | 0-based index of the last stage to execute (default last) |
 | `keep_last_art_file` | bool | Write the art ROOT file for the last stage (default `True`) |
 | `keep_last_hist_file` | bool | Write the histogram ROOT file for the last stage (default `True`) |
-| `input_files` | string or list | External input files for the first stage; omit for generation pipelines |
+| `input_files` | string or list | External input files for the first stage; omit for generation pipelines. Accepts local paths or URLs (`http://`, `https://`, `root://`, `xroot://`) |
 | `stages` | mapping | Stage definitions (see below) |
 | `sequence` | list | Ordered list of stage names to run |
 
