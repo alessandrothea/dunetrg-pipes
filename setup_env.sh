@@ -4,4 +4,4 @@ export PATH="${HERE}/scripts${PATH:+:${PATH}}"
 
 unset HERE
 
-echo "--- dunetrg-devtools setup complete ---"
+echo "--- dunetrg-pipes setup complete ---"

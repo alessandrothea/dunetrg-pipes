@@ -1,4 +1,4 @@
-# dunetrg-devtools
+# dunetrg-pipes
 
 Developer tools for DUNE trigger simulation workflows. The package covers three areas:
 
@@ -11,7 +11,7 @@ Developer tools for DUNE trigger simulation workflows. The package covers three 
 ## Repository layout
 
 ```
-dunetrg-devtools/
+dunetrg-pipes/
 ├── setup_env.sh          # Source to add scripts/ to PATH
 ├── scripts/
 │   ├── lar-piper.py      # Pipeline runner (rich terminal output)
