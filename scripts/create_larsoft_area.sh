@@ -2,6 +2,8 @@
 
 # set -euo pipefail
 
+SCRIPT_DIR=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)
+
 # Help message function
 usage() {
     cat <<EOF
@@ -107,10 +109,8 @@ python -m venv .venv
 
 source .venv/bin/activate
 
-# TODO: move pip packages to a requirements.txt files
 # Install python packages
-pip install pyyaml
-pip install rich
+pip install -r "${SCRIPT_DIR}/../setup/requirements.txt"
 
 cat > setup_dunesw.sh << EOF
 #!/bin/bash
