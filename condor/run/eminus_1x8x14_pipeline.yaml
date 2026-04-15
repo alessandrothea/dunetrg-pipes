@@ -10,9 +10,9 @@
 
 label: 'eminus_1x8x14_pipeline'
 
-pipeline_config: '/home/thea/devel/dune-trigger/toolbox/dunetrg-cards/pipelines/vd_single_eminus_1x8x14.yaml'
+pipeline_config: '/afs/cern.ch/work/t/thea/dune/toolbox/dunetrg-pipes/condor/run/eminus_1x8x14_pipeline.yaml'
 
-setup_script: '/afs/cern.ch/work/t/thea/dune/trigsim_mark09_v10_20_03d00/setup_dunesw.sh'
+setup_script: '/afs/cern.ch/work/t/thea/dune/trigsim_v10_20_03d00/condor_setup.sh'
 
 eos_output_folder: '/eos/home-t/thea/dune_trigger/eminus_1x8x14'
 
