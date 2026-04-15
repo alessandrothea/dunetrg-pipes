@@ -18,6 +18,6 @@ eos_output_folder: '/eos/home-t/thea/dune_trigger/eminus_1x8x14'
 
 source:
   type: generator
-  n_events: 10000        # total events for the campaign
-  n_events_per_job: 100  # n_jobs = n_events // n_events_per_job = 10
+  n_events: 100          # total events for the campaign
+  n_events_per_job: 10   # n_jobs = n_events // n_events_per_job = 10
   run_number: 21000      # ART run number; each job gets subrun = job_index, event = 1

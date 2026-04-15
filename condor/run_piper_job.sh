@@ -22,6 +22,7 @@ echo "  workdir:      $(pwd)"
 echo "  SETUP_SCRIPT: ${SETUP_SCRIPT}"
 echo "  args:         $*"
 
+set -x
 source "${SETUP_SCRIPT}"
 
-python3 lar-piper.py "$@"
+python3 "${LAR_PIPER_SCRIPT}" "$@"

@@ -2,7 +2,6 @@
 
 from rich import print
 import click
-import shutil
 import yaml
 from pathlib import Path
 import os.path
@@ -14,8 +13,9 @@ import htcondor2 as htcondor
 
 #------------------------------------------------------------------------------
 
-_SCRIPT_DIR = Path(__file__).resolve().parent
-_RUN_PIPER  = _SCRIPT_DIR / 'run_piper_job.sh'
+_SCRIPT_DIR      = Path(__file__).resolve().parent
+_RUN_PIPER       = _SCRIPT_DIR / 'run_piper_job.sh'
+_LAR_PIPER_SCRIPT = _SCRIPT_DIR.parent / 'scripts' / 'lar-piper.py'
 
 #------------------------------------------------------------------------------
 
@@ -93,7 +93,9 @@ def to_eos(p):
 @click.argument('card_file', type=click.Path(exists=True, dir_okay=False))
 @click.option('-s', '--submit', default=False, is_flag=True,
               help='Actually submit jobs to HTCondor (default: dry-run)')
-def cli(card_file, submit):
+@click.option('-p', '--print-cards', 'print_cards', default=False, is_flag=True,
+              help='Print the HTCondor submit description and per-job itemdata')
+def cli(card_file, submit, print_cards):
     with open(card_file, 'r') as stream:
         data_loaded = yaml.safe_load(stream)
 
@@ -107,13 +109,6 @@ def cli(card_file, submit):
         print()
         raise SystemExit(-1)
 
-    # Locate lar-piper.py on PATH (put there by setup_env.sh)
-    lar_piper_path = shutil.which('lar-piper.py')
-    if lar_piper_path is None:
-        print('[red]ERROR[/red] lar-piper.py not found on PATH.')
-        print('Source dunetrg-pipes/setup_env.sh before running piper-condor.py.')
-        raise SystemExit(-1)
-
     print("[CREDD] Adding user credentials to credd daemon")
     try:
         credd = htcondor.Credd()
@@ -123,9 +118,9 @@ def cli(card_file, submit):
         print(f"[yellow][CREDD] Warning: {e}[/yellow]")
         print("[yellow][CREDD] Proceeding — HTCondor may handle Kerberos delegation automatically.[/yellow]")
 
-    # transfer_input_files: always pipeline config + lar-piper.py;
-    # $(input_file) is appended for file-source jobs.
-    transfer_files = f'{cfg.pipeline_config}, {lar_piper_path}'
+    # transfer_input_files: pipeline config always; $(input_file) for file-source jobs.
+    # lar-piper.py and run_piper_job.sh live in the toolbox on AFS — no transfer needed.
+    transfer_files = str(cfg.pipeline_config)
     if isinstance(cfg.source, FileSource):
         transfer_files += ', $(input_file)'
 
@@ -139,7 +134,7 @@ def cli(card_file, submit):
         'should_transfer_files': 'YES',
         'transfer_input_files':  transfer_files,
         'output_destination':    to_eos(cfg.eos_output_folder) + f'/{cfg.label}_$(ClusterId)/job_$(job_index)/',
-        'environment':           f'"SETUP_SCRIPT={cfg.setup_script}"',
+        'environment':           f'"SETUP_SCRIPT={cfg.setup_script} LAR_PIPER_SCRIPT={_LAR_PIPER_SCRIPT}"',
         '+JobFlavour':           '"tomorrow"',
         'MY.SendCredential':     'True',
         'MY.XRDCP_CREATE_DIR':   'True',
@@ -197,9 +192,9 @@ def cli(card_file, submit):
                     'input_file': to_eos(f),
                 })
 
-    # Print cluster definition
-    print(sub)
-    print(itemdata)
+    if print_cards:
+        print(sub)
+        print(itemdata)
 
     if submit:
         schedd = htcondor.Schedd()
