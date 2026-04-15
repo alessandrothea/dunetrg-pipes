@@ -101,13 +101,9 @@ eos_input_files:          # omit for generation jobs (no input)
 
 ## `piper-condor.py` — full-pipeline submission
 
-Submits one complete `lar-piper.py` pipeline run per job. Each job calls:
+Submits one complete `lar-piper.py` pipeline run per job. The pipeline YAML and `lar-piper.py` are transferred to the compute node by HTCondor. The `setup_script` is sourced on the node to load the DUNE software environment. All stage output directories (`gen/`, `g4/`, `detsim/`, …) are transferred to EOS when the job completes.
 
-```
-python3 lar-piper.py -p n_events=<N> [-p skip_events=<K>] [-p input_files=<file>] <pipeline.yaml>
-```
-
-The pipeline YAML and `lar-piper.py` are transferred to the compute node by HTCondor. The `setup_script` is sourced on the node to load the DUNE software environment. All stage output directories (`gen/`, `g4/`, `detsim/`, …) are transferred to EOS when the job completes.
+The job card has two exclusive `source` modes selected by `source.type`.
 
 ### Usage
 
@@ -119,33 +115,64 @@ piper-condor.py <card_file.yaml>
 piper-condor.py -s <card_file.yaml>
 ```
 
-### Job card
+### Job card — generator source
+
+For simulation pipelines that start from scratch (no input files). Number of jobs = `n_events // n_events_per_job`. Each job receives `-p n_events=<n_events_per_job>` and `-p first_event={"run":<run_number>,"subrun":<job_index>,"event":1}`.
 
 ```yaml
 label: 'eminus_1x8x14_pipeline'
-
 pipeline_config: '/home/thea/.../dunetrg-cards/pipelines/vd_single_eminus_1x8x14.yaml'
 setup_script:    '/afs/cern.ch/work/t/thea/dune/trigsim_mark09_v10_20_03d00/setup_dunesw.sh'
-
-n_events: 1000
-n_jobs_per_file: 10     # splits into 10 jobs of 100 events each
-
 eos_output_folder: '/eos/home-t/thea/dune_trigger/eminus_1x8x14'
 
-# eos_input_files: omit for pipelines that start from generation
+source:
+  type: generator
+  n_events: 10000        # total events for the campaign
+  n_events_per_job: 1000 # n_jobs = n_events // n_events_per_job = 10
+  run_number: 1          # ART run; subrun = job index, event = 1
 ```
 
-### Card fields
+| Field | Required | Description |
+|-------|----------|-------------|
+| `type` | yes | Must be `generator` |
+| `n_events` | yes | Total events for the campaign |
+| `n_events_per_job` | yes | Events each job generates; determines number of jobs |
+| `run_number` | yes | ART run number injected via `-e run:subrun:1` |
+
+### Job card — file source
+
+For downstream stages that consume existing EOS ROOT files. Each job receives `-p input_files=<basename>` (file transferred to job CWD by HTCondor).
+
+```yaml
+label: 'eminus_1x8x14_detsim'
+pipeline_config: '/home/thea/.../dunetrg-cards/pipelines/vd_radiols_1x8x14_detsim_tpg.yaml'
+setup_script:    '/afs/cern.ch/work/t/thea/dune/trigsim_mark09_v10_20_03d00/setup_dunesw.sh'
+eos_output_folder: '/eos/home-t/thea/dune_trigger/eminus_1x8x14_detsim'
+
+source:
+  type: file
+  eos_input_files:
+    - '/eos/.../job_00/g4_vd_eminus_1x8x14.root'
+    - '/eos/.../job_01/g4_vd_eminus_1x8x14.root'
+  n_jobs_per_input_file: 1   # set >1 to split events within each file
+  # n_events_per_job: 100    # required when n_jobs_per_input_file > 1
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `type` | yes | Must be `file` |
+| `eos_input_files` | yes | Input ROOT files on EOS |
+| `n_jobs_per_input_file` | no (default 1) | Subjobs per file; implies event splitting when > 1 |
+| `n_events_per_job` | yes (if `n_jobs_per_input_file > 1`) | Events per subjob; used to compute `-p n_events` and `-p skip_events` |
+
+### Common top-level fields
 
 | Key | Required | Description |
 |-----|----------|-------------|
 | `label` | yes | Job label; used in output path `<folder>/<label>_<ClusterId>/` |
 | `pipeline_config` | yes | Absolute path to a `lar-piper.py` pipeline YAML datacard |
 | `setup_script` | yes | Absolute path to the DUNE software setup script; sourced on the compute node |
-| `n_events` | yes (if `n_jobs_per_file > 1`) | Total events; split evenly across subjobs via `-p n_events` and `-p skip_events` |
-| `n_jobs_per_file` | no (default 1) | Number of subjobs; implies event splitting when > 1 |
 | `eos_output_folder` | yes | Destination directory on EOS (must be under `/eos`) |
-| `eos_input_files` | no | Input ROOT files on EOS; overrides `input_files` in the pipeline card via `-p input_files=<basename>` |
 
 ### Output structure
 

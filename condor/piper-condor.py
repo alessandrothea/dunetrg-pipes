@@ -2,19 +2,65 @@
 
 from rich import print
 import click
+import json
 import shutil
 import yaml
 from pathlib import Path
 import os.path
 
 from pydantic import BaseModel, FilePath, DirectoryPath, field_validator, model_validator, ValidationError
-from typing import Optional, List
+from typing import Annotated, List, Literal, Optional, Union
+from pydantic import Field
 import htcondor2 as htcondor
 
 #------------------------------------------------------------------------------
 
-_SCRIPT_DIR   = Path(__file__).resolve().parent
-_RUN_PIPER    = _SCRIPT_DIR / 'run_piper_job.sh'
+_SCRIPT_DIR = Path(__file__).resolve().parent
+_RUN_PIPER  = _SCRIPT_DIR / 'run_piper_job.sh'
+
+#------------------------------------------------------------------------------
+
+class GeneratorSource(BaseModel):
+    """
+    Simulation/generation jobs — no input ROOT files.
+    Each job runs the full pipeline from scratch, generating n_events_per_job events.
+    Total number of jobs: n_events // n_events_per_job.
+    """
+    type:             Literal['generator']
+    n_events:         int   # total events for the campaign
+    n_events_per_job: int   # events each job generates
+    run_number:       int   # ART run number; subrun = job index, event = 1
+
+
+class FileSource(BaseModel):
+    """
+    File-based jobs — pipeline starts from existing EOS ROOT files.
+    One or more jobs are created per input file (event splitting with n_jobs_per_input_file > 1).
+    """
+    type:                  Literal['file']
+    eos_input_files:       List[FilePath]
+    n_jobs_per_input_file: int           = 1
+    n_events_per_job:      Optional[int] = None  # required when n_jobs_per_input_file > 1
+
+    @field_validator('eos_input_files', mode='before')
+    def expand_eos_paths(cls, value_list):
+        return [Path(os.path.expandvars(v)).expanduser() for v in value_list]
+
+    @field_validator('eos_input_files', mode='after')
+    def check_eos_paths(cls, value_list):
+        for value in value_list:
+            if not value.parts[1] == 'eos':
+                raise ValueError(f"'{value}' is not an eos folder")
+        return value_list
+
+    @model_validator(mode='after')
+    def check_splitting(self):
+        if self.n_jobs_per_input_file > 1 and self.n_events_per_job is None:
+            raise ValueError('n_events_per_job is required when n_jobs_per_input_file > 1')
+        return self
+
+
+Source = Annotated[Union[GeneratorSource, FileSource], Field(discriminator='type')]
 
 #------------------------------------------------------------------------------
 
@@ -23,41 +69,20 @@ class PiperJobConfig(BaseModel):
     Model for lar-piper.py pipeline jobs submitted via HTCondor.
     """
     label:             str
-    pipeline_config:   FilePath       # lar-piper.py pipeline YAML datacard
-    setup_script:      FilePath       # DUNEsw setup script (sourced on compute node)
-
-    n_events:          Optional[int] = -1
-    n_jobs_per_file:   Optional[int] = 1
+    pipeline_config:   FilePath      # lar-piper.py pipeline YAML datacard
+    setup_script:      FilePath      # DUNEsw setup script (sourced on compute node)
     eos_output_folder: DirectoryPath
-    eos_input_files:   Optional[List[FilePath]] = None
-
+    source:            Source
 
     @field_validator('pipeline_config', 'setup_script', 'eos_output_folder', mode='before')
     def expand_and_validate_path(cls, value):
-        p = Path(os.path.expandvars(value)).expanduser()
-        return p
+        return Path(os.path.expandvars(value)).expanduser()
 
     @field_validator('eos_output_folder', mode='after')
     def check_eos_path(cls, value):
         if not value.parts[1] == 'eos':
             raise ValueError(f"'{value}' is not an eos folder")
         return value
-
-    @field_validator('eos_input_files', mode='after')
-    def check_eos_path_list(cls, value_list):
-        path_list = []
-        for value in value_list:
-            if not value.parts[1] == 'eos':
-                raise ValueError(f"'{value}' is not an eos folder")
-            path_list.append(value)
-        return path_list
-
-    @model_validator(mode='after')
-    def check_events_and_jobs(self):
-        if self.n_jobs_per_file != 1 and self.n_events == -1:
-            raise ValueError('Multiple jobs per file require the number of events per file to be defined')
-        return self
-
 
 #------------------------------------------------------------------------------
 
@@ -87,11 +112,8 @@ def cli(card_file, submit):
     lar_piper_path = shutil.which('lar-piper.py')
     if lar_piper_path is None:
         print('[red]ERROR[/red] lar-piper.py not found on PATH.')
-        print('Source dunetrg-pipes/setup_env.sh before running piper_condor.py.')
+        print('Source dunetrg-pipes/setup_env.sh before running piper-condor.py.')
         raise SystemExit(-1)
-
-    job_files = [(0, None)] if cfg.eos_input_files is None \
-                else [(i, f) for i, f in enumerate(cfg.eos_input_files)]
 
     print("[CREDD] Adding user credentials to credd daemon")
     try:
@@ -102,9 +124,11 @@ def cli(card_file, submit):
         print(f"[yellow][CREDD] Warning: {e}[/yellow]")
         print("[yellow][CREDD] Proceeding — HTCondor may handle Kerberos delegation automatically.[/yellow]")
 
-    # transfer_input_files: always include pipeline config + lar-piper.py;
-    # append $(input_file) per-job when EOS input files are provided.
+    # transfer_input_files: always pipeline config + lar-piper.py;
+    # $(input_file) is appended for file-source jobs.
     transfer_files = f'{cfg.pipeline_config}, {lar_piper_path}'
+    if isinstance(cfg.source, FileSource):
+        transfer_files += ', $(input_file)'
 
     sub = htcondor.Submit({
         'executable':            str(_RUN_PIPER),
@@ -123,47 +147,58 @@ def cli(card_file, submit):
         'MY.SingularityImage':   '"/cvmfs/unpacked.cern.ch/registry.hub.docker.com/fermilab/fnal-dev-sl7:latest"',
     })
 
-    if cfg.eos_input_files is not None:
-        sub['transfer_input_files'] += ', $(input_file)'
-
     # Build per-job itemdata
     itemdata = []
+    src = cfg.source
 
-    n_events_per_job = cfg.n_events // cfg.n_jobs_per_file
+    if isinstance(src, GeneratorSource):
+        n_jobs     = src.n_events // src.n_events_per_job
+        digits_job = len(str(n_jobs - 1))
 
-    digits_file = len(str(len(job_files) - 1))
-    digits_job  = len(str((cfg.n_jobs_per_file * len(job_files)) - 1))
+        for j in range(n_jobs):
+            print(f"[cyan]Creating generator job {j}[/cyan]")
 
-    for i, f in job_files:
-        for k in range(cfg.n_jobs_per_file):
+            job_index = '{num:0{width}}'.format(num=j, width=digits_job)
 
-            print(f"[cyan]Creating job: file {i} subjob {k}[/cyan]")
+            first_event_json = json.dumps(
+                {"run": src.run_number, "subrun": j, "event": 1},
+                separators=(',', ':'),   # compact — no spaces, safe for HTCondor arg parsing
+            )
+            overrides = [
+                f'-p n_events={src.n_events_per_job}',
+                f'-p first_event={first_event_json}',
+            ]
 
-            file_index = '{num:0{width}}'.format(num=i, width=digits_file)
-            job_index  = '{num:0{width}}'.format(num=i * cfg.n_jobs_per_file + k, width=digits_job)
+            itemdata.append({
+                'job_index': job_index,
+                'job_args':  ' '.join(overrides) + f' {cfg.pipeline_config.name}',
+            })
 
-            # Build -p KEY=VALUE override string for lar-piper.py
-            overrides = [f'-p n_events={n_events_per_job}']
+    else:  # FileSource
+        n_files    = len(src.eos_input_files)
+        n_total    = src.n_jobs_per_input_file * n_files
+        digits_file = len(str(n_files - 1))
+        digits_job  = len(str(n_total - 1))
 
-            if cfg.n_jobs_per_file != 1:
-                overrides.append(f'-p skip_events={k * n_events_per_job}')
+        for i, f in enumerate(src.eos_input_files):
+            for k in range(src.n_jobs_per_input_file):
+                print(f"[cyan]Creating job: file {i} subjob {k}[/cyan]")
 
-            if f is not None:
-                # Transfer delivers the file to job CWD; pass basename only
+                job_idx_int = i * src.n_jobs_per_input_file + k
+                job_index   = '{num:0{width}}'.format(num=job_idx_int, width=digits_job)
+
+                overrides = []
+                if src.n_events_per_job is not None:
+                    overrides.append(f'-p n_events={src.n_events_per_job}')
+                    if src.n_jobs_per_input_file > 1:
+                        overrides.append(f'-p skip_events={k * src.n_events_per_job}')
                 overrides.append(f'-p input_files={f.name}')
 
-            # Pipeline YAML is positional arg (last); it arrives in job CWD via transfer
-            job_args = ' '.join(overrides) + f' {cfg.pipeline_config.name}'
-
-            item = {
-                'job_index': job_index,
-                'job_args':  job_args,
-            }
-
-            if f is not None:
-                item['input_file'] = to_eos(f)
-
-            itemdata.append(item)
+                itemdata.append({
+                    'job_index':  job_index,
+                    'job_args':   ' '.join(overrides) + f' {cfg.pipeline_config.name}',
+                    'input_file': to_eos(f),
+                })
 
     # Print cluster definition
     print(sub)
