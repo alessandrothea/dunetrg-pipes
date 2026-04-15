@@ -9,7 +9,7 @@ import os.path
 
 from pydantic import BaseModel, FilePath, DirectoryPath, field_validator, model_validator, ValidationError
 from typing import Optional, List
-import htcondor
+import htcondor2 as htcondor
 
 #------------------------------------------------------------------------------
 
@@ -95,7 +95,7 @@ def cli(card_file, submit):
 
     print("[CREDD] Adding user credentials to credd daemon")
     credd = htcondor.Credd()
-    credd.add_user_cred(htcondor.CredTypes.Kerberos, None)
+    credd.add_user_cred(htcondor.CredTypes.Kerberos, b"")
 
     # transfer_input_files: always include pipeline config + lar-piper.py;
     # append $(input_file) per-job when EOS input files are provided.

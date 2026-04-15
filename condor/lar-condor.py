@@ -9,7 +9,7 @@ import os.path
 
 from pydantic import BaseModel, FilePath, DirectoryPath, field_validator, model_validator, ValidationError
 from typing import Optional, List
-import htcondor
+import htcondor2 as htcondor
 
 #------------------------------------------------------------------------------
 
@@ -95,7 +95,7 @@ def cli(card_file, submit):
     print ("[CREDD] Adding user credentials to credd daemon")
     # col = htcondor.Collector()
     credd = htcondor.Credd()
-    credd.add_user_cred(htcondor.CredTypes.Kerberos, None)
+    credd.add_user_cred(htcondor.CredTypes.Kerberos, b"")
     
     sub = htcondor.Submit({
         'executable': str(cfg.larsoft_runner),
