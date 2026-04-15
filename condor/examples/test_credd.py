@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-test_credd.py — smoke-test for credd.add_user_cred(CredTypes.Kerberos, b"")
+test_credd.py — smoke-test for credd.add_user_cred(CredTypes.Kerberos, None)
 
 Run this at CERN on a submit node with a valid Kerberos ticket before
 submitting jobs with lar-condor.py or piper-condor.py.
@@ -68,12 +68,12 @@ except Exception as e:
     sys.exit(1)
 
 # -------------------------------------------------------------------
-# 5. add_user_cred(CredTypes.Kerberos, b"")
+# 5. add_user_cred(CredTypes.Kerberos, None)
 # -------------------------------------------------------------------
 print("\n=== credd.add_user_cred(CredTypes.Kerberos, b\"\") ===")
 credd_ok = False
 try:
-    credd.add_user_cred(htcondor2.CredTypes.Kerberos, b"")
+    credd.add_user_cred(htcondor2.CredTypes.Kerberos, None)
     print("OK")
     credd_ok = True
 except Exception as e:
