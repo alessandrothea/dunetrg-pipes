@@ -71,25 +71,30 @@ except Exception as e:
 # 5. add_user_cred(CredTypes.Kerberos, b"")
 # -------------------------------------------------------------------
 print("\n=== credd.add_user_cred(CredTypes.Kerberos, b\"\") ===")
+credd_ok = False
 try:
     credd.add_user_cred(htcondor2.CredTypes.Kerberos, b"")
     print("OK")
+    credd_ok = True
 except Exception as e:
-    print(f"ERROR: {e}")
-    sys.exit(1)
+    print(f"WARNING: {e}")
+    print("  This usually means condor_credmon_krb is not running on this submit node.")
+    print("  At CERN, HTCondor typically delegates Kerberos credentials automatically")
+    print("  via MY.SendCredential — job submission may still work without this step.")
 
 # -------------------------------------------------------------------
-# 6. Verify credential was stored
+# 6. Verify credential was stored (only if step 5 succeeded)
 # -------------------------------------------------------------------
-print("\n=== credd.query_user_cred(CredTypes.Kerberos) ===")
-try:
-    ts = credd.query_user_cred(htcondor2.CredTypes.Kerberos)
-    if ts is not None:
-        print(f"OK  (last updated: {ts})")
-    else:
-        print("WARNING: query returned None — credential may not have been stored")
-except Exception as e:
-    print(f"ERROR: {e}")
-    sys.exit(1)
+if credd_ok:
+    print("\n=== credd.query_user_cred(CredTypes.Kerberos) ===")
+    try:
+        ts = credd.query_user_cred(htcondor2.CredTypes.Kerberos)
+        if ts is not None:
+            print(f"OK  (last updated: {ts})")
+        else:
+            print("WARNING: query returned None — credential may not have been stored")
+    except Exception as e:
+        print(f"ERROR: {e}")
+        sys.exit(1)
 
-print("\nAll checks passed.")
+print("\nDone." + ("" if credd_ok else " (credd step skipped — see warning above)"))

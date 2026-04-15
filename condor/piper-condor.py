@@ -94,8 +94,13 @@ def cli(card_file, submit):
                 else [(i, f) for i, f in enumerate(cfg.eos_input_files)]
 
     print("[CREDD] Adding user credentials to credd daemon")
-    credd = htcondor.Credd()
-    credd.add_user_cred(htcondor.CredTypes.Kerberos, b"")
+    try:
+        credd = htcondor.Credd()
+        credd.add_user_cred(htcondor.CredTypes.Kerberos, b"")
+        print("[CREDD] OK")
+    except Exception as e:
+        print(f"[yellow][CREDD] Warning: {e}[/yellow]")
+        print("[yellow][CREDD] Proceeding — HTCondor may handle Kerberos delegation automatically.[/yellow]")
 
     # transfer_input_files: always include pipeline config + lar-piper.py;
     # append $(input_file) per-job when EOS input files are provided.

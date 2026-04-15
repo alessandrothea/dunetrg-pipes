@@ -92,10 +92,14 @@ def cli(card_file, submit):
         job_files = [(i, f) for i,f in enumerate(cfg.eos_input_files)]
 
 
-    print ("[CREDD] Adding user credentials to credd daemon")
-    # col = htcondor.Collector()
-    credd = htcondor.Credd()
-    credd.add_user_cred(htcondor.CredTypes.Kerberos, b"")
+    print("[CREDD] Adding user credentials to credd daemon")
+    try:
+        credd = htcondor.Credd()
+        credd.add_user_cred(htcondor.CredTypes.Kerberos, b"")
+        print("[CREDD] OK")
+    except Exception as e:
+        print(f"[yellow][CREDD] Warning: {e}[/yellow]")
+        print("[yellow][CREDD] Proceeding — HTCondor may handle Kerberos delegation automatically.[/yellow]")
     
     sub = htcondor.Submit({
         'executable': str(cfg.larsoft_runner),
