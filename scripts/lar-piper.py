@@ -575,9 +575,11 @@ def apply_overrides(cfg: Dict[str, Any], params: List[str]) -> None:
 
         node = cfg
         for k in keys[:-1]:
-            if not isinstance(node, dict) or k not in node:
+            if not isinstance(node, dict):
                 _error(f"--param '{param}': key path '[bold]{key_path}[/bold]' not found in config.")
                 sys.exit(1)
+            if k not in node:
+                node[k] = {}   # auto-create missing intermediate dicts
             node = node[k]
         node[keys[-1]] = value
         _print(f"  [bold yellow]\u21ba[/bold yellow] override  [bold]{key_path}[/bold] = {value!r}")

@@ -2,7 +2,6 @@
 
 from rich import print
 import click
-import json
 import shutil
 import yaml
 from pathlib import Path
@@ -160,13 +159,11 @@ def cli(card_file, submit):
 
             job_index = '{num:0{width}}'.format(num=j, width=digits_job)
 
-            first_event_json = json.dumps(
-                {"run": src.run_number, "subrun": j, "event": 1},
-                separators=(',', ':'),   # compact — no spaces, safe for HTCondor arg parsing
-            )
             overrides = [
                 f'-p n_events={src.n_events_per_job}',
-                f'-p first_event={first_event_json}',
+                f'-p first_event.run={src.run_number}',
+                f'-p first_event.subrun={j}',
+                f'-p first_event.event=1',
             ]
 
             itemdata.append({
