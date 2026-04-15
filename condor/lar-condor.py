@@ -95,7 +95,7 @@ def cli(card_file, submit):
     print("[CREDD] Adding user credentials to credd daemon")
     try:
         credd = htcondor.Credd()
-        credd.add_user_cred(htcondor.CredTypes.Kerberos, b"")
+        credd.add_user_cred(htcondor.CredTypes.Kerberos, None)
         print("[CREDD] OK")
     except Exception as e:
         print(f"[yellow][CREDD] Warning: {e}[/yellow]")

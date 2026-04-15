@@ -70,7 +70,7 @@ except Exception as e:
 # -------------------------------------------------------------------
 # 5. add_user_cred(CredTypes.Kerberos, None)
 # -------------------------------------------------------------------
-print("\n=== credd.add_user_cred(CredTypes.Kerberos, b\"\") ===")
+print("\n=== credd.add_user_cred(CredTypes.Kerberos, None) ===")
 credd_ok = False
 try:
     credd.add_user_cred(htcondor2.CredTypes.Kerberos, None)
