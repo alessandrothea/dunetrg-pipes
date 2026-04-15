@@ -19,9 +19,13 @@ dunetrg-pipes/
 │   ├── find-fhicl.sh     # Locate FCL files in FHICL_FILE_PATH
 │   └── create_larsoft_area.sh
 └── condor/
-    ├── lar_condor.py     # HTCondor submission tool
-    ├── pyproject.toml
+    ├── lar-condor.py     # Single-stage HTCondor submission
+    ├── piper-condor.py   # Full-pipeline HTCondor submission
+    ├── run_piper_job.sh  # Generic batch wrapper for piper jobs
     ├── run_larsoft_job.sh
+    ├── pyproject.toml
+    ├── README.md         # Condor tools reference
+    ├── run/              # Job cards
     └── examples/
         ├── example.sub
         ├── runme.sh
@@ -191,9 +195,9 @@ Useful for quickly locating which version of a template FCL is active in the cur
 
 ---
 
-## `condor/lar_condor.py` — HTCondor submission
+## `condor/` — HTCondor batch submission
 
-Submits LArSoft jobs to an HTCondor cluster, reading job parameters from a YAML configuration card. Designed for use at CERN with EOS storage.
+Two tools for submitting jobs to an HTCondor cluster at CERN with EOS storage. See [`condor/README.md`](../condor/README.md) for the full reference.
 
 ### Requirements
 
@@ -201,45 +205,50 @@ Submits LArSoft jobs to an HTCondor cluster, reading job parameters from a YAML 
 pip install click htcondor pydantic pyyaml rich
 ```
 
-Valid Kerberos credentials are required for EOS access and job submission.
+Valid Kerberos credentials are required. `piper-condor.py` additionally requires `lar-piper.py` on `PATH`.
 
-### Usage
+---
+
+### `lar-condor.py` — single-stage submission
+
+Submits one `lar` command per job. Use this to run a single simulation stage (e.g. g4, detsim) across many input files or event splits.
 
 ```bash
-lar_condor.py [-s] <card_file.yaml>
+lar-condor.py [-s] <card_file.yaml>
 ```
-
-| Flag | Description |
-|------|-------------|
-| `-s, --submit` | Actually submit jobs (default is dry-run) |
-
-### Job card format
 
 ```yaml
-label: "mu_minus_detsim"
-larsoft_runner: "/path/to/run_larsoft_job.sh"
-config_fcl: "detsim_dunevd10kt.fcl"
-n_eventsents: 1000
-n_jobs_per_file: 10
-output_file_prefix: "detsim_output"
-eos_output_folder: "/eos/home-u/user/dune/output"
+label: 'eminus_vd_g4'
+larsoft_runner: '/afs/cern.ch/work/t/thea/dune/<area>/lar_wrap.sh'
+config_fcl: 'supernova_g4_dunevd10kt_1x8x14_3view_30deg.fcl'
+n_events: 10000
+n_jobs_per_file: 100
+output_file_prefix: 'eminus_vd_g4'
+eos_output_folder: '/eos/home-t/thea/dune_trigger/eminus_vd/g4'
 eos_input_files:
-  - "/eos/home-u/user/dune/g4/g4_output_0.root"
-  - "/eos/home-u/user/dune/g4/g4_output_1.root"
+  - '/eos/home-t/thea/dune_trigger/eminus_vd/gen/<ClusterId>/job_0/eminus_vd_gen_0.root'
 ```
 
-| Key | Required | Description |
-|-----|----------|-------------|
-| `label` | yes | Job label used in output paths |
-| `larsoft_runner` | yes | Executable script for the batch job |
-| `config_fcl` | yes | FCL configuration passed to `lar` |
-| `n_eventsents` | yes (multi-job) | Total events per input file |
-| `n_jobs_per_file` | yes | Number of jobs spawned per input file |
-| `output_file_prefix` | yes | Base name for output ROOT files |
-| `eos_output_folder` | yes | Destination directory on EOS (must be under `/eos`) |
-| `eos_input_files` | no | Input ROOT files on EOS; omit for generation jobs |
+---
 
-Jobs run inside a Fermilab SL7 Singularity container. Each job automatically receives the correct input file and event-skip offset derived from its `n_jobs_per_file` split. Outputs land in `<eos_output_folder>/<ClusterId>/<ProcId>/`.
+### `piper-condor.py` — full-pipeline submission
+
+Submits one complete `lar-piper.py` pipeline run per job (gen → g4 → detsim → tpg → anatree). The pipeline YAML and `lar-piper.py` are transferred to the compute node; all stage outputs are returned to EOS.
+
+```bash
+piper-condor.py [-s] <card_file.yaml>
+```
+
+```yaml
+label: 'eminus_1x8x14_pipeline'
+pipeline_config: '/path/to/dunetrg-cards/pipelines/vd_single_eminus_1x8x14.yaml'
+setup_script:    '/afs/cern.ch/work/t/thea/dune/<area>/setup_dunesw.sh'
+n_events: 1000
+n_jobs_per_file: 10
+eos_output_folder: '/eos/home-t/thea/dune_trigger/eminus_1x8x14'
+```
+
+Both tools run inside a Fermilab SL7 Singularity container with `+JobFlavour = "tomorrow"`.
 
 ---
 

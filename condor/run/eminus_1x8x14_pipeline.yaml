@@ -1,0 +1,22 @@
+---
+# piper_condor.py job card — full generation pipeline
+# Runs lar-piper.py with vd_single_eminus_1x8x14.yaml as a batch HTCondor job.
+# Each subjob processes n_events/n_jobs_per_file events with the correct skip offset.
+#
+# Usage (dry-run):
+#   piper_condor.py run/eminus_1x8x14_pipeline.yaml
+# Usage (submit):
+#   piper_condor.py -s run/eminus_1x8x14_pipeline.yaml
+
+label: 'eminus_1x8x14_pipeline'
+
+pipeline_config: '/home/thea/devel/dune-trigger/toolbox/dunetrg-cards/pipelines/vd_single_eminus_1x8x14.yaml'
+
+setup_script: '/afs/cern.ch/work/t/thea/dune/trigsim_mark09_v10_20_03d00/setup_dunesw.sh'
+
+n_events: 1000
+n_jobs_per_file: 10
+
+eos_output_folder: '/eos/home-t/thea/dune_trigger/eminus_1x8x14'
+
+# eos_input_files is omitted — the pipeline starts from the gen stage (no input ROOT files)
