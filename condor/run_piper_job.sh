@@ -1,5 +1,4 @@
 #!/bin/bash
-set -euo pipefail
 
 # HTCondor batch wrapper for lar-piper.py pipeline jobs.
 #
