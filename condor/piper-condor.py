@@ -72,6 +72,7 @@ class PiperJobConfig(BaseModel):
     setup_script:      FilePath      # DUNEsw setup script (sourced on compute node)
     eos_output_folder: DirectoryPath
     source:            Source
+    copy_to_eos:       Optional[List[str]] = None  # local paths (relative to job CWD) to xrdcp to EOS after the job
 
     @field_validator('pipeline_config', 'setup_script', 'eos_output_folder', mode='before')
     def expand_and_validate_path(cls, value):
@@ -87,6 +88,18 @@ class PiperJobConfig(BaseModel):
 
 def to_eos(p):
     return f"root://eosuser.cern.ch/{p}"
+
+
+def _build_env(cfg: PiperJobConfig) -> str:
+    """Build the HTCondor environment string for a piper job."""
+    env = f'SETUP_SCRIPT={cfg.setup_script} LAR_PIPER_SCRIPT={_LAR_PIPER_SCRIPT}'
+    if cfg.copy_to_eos:
+        xrdcp_sources  = ':'.join(cfg.copy_to_eos)
+        eos_job_output = (
+            f'{to_eos(cfg.eos_output_folder)}/{cfg.label}_$(ClusterId)/job_$(job_index)/'
+        )
+        env += f' XRDCP_SOURCES={xrdcp_sources} EOS_JOB_OUTPUT={eos_job_output}'
+    return f'"{env}"'
 
 
 @click.command()
@@ -134,7 +147,7 @@ def cli(card_file, submit, print_cards):
         'should_transfer_files': 'YES',
         'transfer_input_files':  transfer_files,
         'output_destination':    to_eos(cfg.eos_output_folder) + f'/{cfg.label}_$(ClusterId)/job_$(job_index)/',
-        'environment':           f'"SETUP_SCRIPT={cfg.setup_script} LAR_PIPER_SCRIPT={_LAR_PIPER_SCRIPT}"',
+        'environment':           _build_env(cfg),
         '+JobFlavour':           '"tomorrow"',
         'MY.SendCredential':     'True',
         'MY.XRDCP_CREATE_DIR':   'True',

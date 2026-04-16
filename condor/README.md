@@ -173,6 +173,15 @@ source:
 | `pipeline_config` | yes | Absolute path to a `lar-piper.py` pipeline YAML datacard |
 | `setup_script` | yes | Absolute path to the DUNE software setup script; sourced on the compute node |
 | `eos_output_folder` | yes | Destination directory on EOS (must be under `/eos`) |
+| `copy_to_eos` | no | List of local paths (relative to job CWD) to copy to EOS after the pipeline completes; directories are copied recursively (`xrdcp -r`), files directly (`xrdcp`) |
+
+Example with copy-back:
+
+```yaml
+copy_to_eos:
+  - 'logs/'           # directory — copied with xrdcp -r
+  - 'debug_dump.root' # file — copied with xrdcp
+```
 
 ### Output structure
 
