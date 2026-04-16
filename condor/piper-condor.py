@@ -6,9 +6,8 @@ import yaml
 from pathlib import Path
 import os.path
 
-from pydantic import BaseModel, FilePath, DirectoryPath, field_validator, model_validator, ValidationError
+from pydantic import BaseModel, FilePath, DirectoryPath, Field, field_validator, model_validator, ValidationError
 from typing import Annotated, List, Literal, Optional, Union
-from pydantic import Field
 import htcondor2 as htcondor
 
 #------------------------------------------------------------------------------
@@ -72,7 +71,7 @@ class PiperJobConfig(BaseModel):
     setup_script:      FilePath      # DUNEsw setup script (sourced on compute node)
     eos_output_folder: DirectoryPath
     source:            Source
-    copy_to_eos:       Optional[List[str]] = None  # local paths (relative to job CWD) to xrdcp to EOS after the job
+    copy_to_eos:       Optional[List[str]] = None  # local paths (relative to job CWD) to transfer to EOS via transfer_output_files
 
     @field_validator('pipeline_config', 'setup_script', 'eos_output_folder', mode='before')
     def expand_and_validate_path(cls, value):
@@ -154,18 +153,6 @@ def _print_job_cards(sub: htcondor.Submit, itemdata: list) -> None:
     print()
 
 
-def _build_env(cfg: PiperJobConfig) -> str:
-    """Build the HTCondor environment string for a piper job."""
-    env = f'SETUP_SCRIPT={cfg.setup_script} LAR_PIPER_SCRIPT={_LAR_PIPER_SCRIPT}'
-    if cfg.copy_to_eos:
-        xrdcp_sources  = ':'.join(cfg.copy_to_eos)
-        eos_job_output = (
-            f'{to_eos(cfg.eos_output_folder)}/{cfg.label}_$(ClusterId)/job_$(job_index)/'
-        )
-        env += f' XRDCP_SOURCES={xrdcp_sources} EOS_JOB_OUTPUT={eos_job_output}'
-    return f'"{env}"'
-
-
 @click.command()
 @click.argument('card_file', type=click.Path(exists=True, dir_okay=False))
 @click.option('-s', '--submit', default=False, is_flag=True,
@@ -176,7 +163,6 @@ def cli(card_file, submit, print_cards):
     with open(card_file, 'r') as stream:
         data_loaded = yaml.safe_load(stream)
 
-    cfg = None
     try:
         cfg = PiperJobConfig(**data_loaded)
     except ValidationError as e:
@@ -201,33 +187,36 @@ def cli(card_file, submit, print_cards):
     if isinstance(cfg.source, FileSource):
         transfer_files += ', $(input_file)'
 
-    sub = htcondor.Submit({
+    sub_dict = {
         'executable':            str(_RUN_PIPER),
         'arguments':             '$(job_args)',
-        'error':                 'piper.$(ClusterId).$(ProcId).err',
-        'output':                'piper.$(ClusterId).$(ProcId).out',
+        'error':                 'piper.$(ClusterId).$(ProcId).err.txt',
+        'output':                'piper.$(ClusterId).$(ProcId).out.txt',
         'log':                   'piper.$(ClusterId).log',
         'transfer_executable':   'false',
         'should_transfer_files': 'YES',
         'transfer_input_files':  transfer_files,
         'output_destination':    to_eos(cfg.eos_output_folder) + f'/{cfg.label}_$(ClusterId)/job_$(job_index)/',
-        'environment':           _build_env(cfg),
+        'environment':           f'"SETUP_SCRIPT={cfg.setup_script} LAR_PIPER_SCRIPT={_LAR_PIPER_SCRIPT}"',
         '+JobFlavour':           '"tomorrow"',
         'MY.SendCredential':     'True',
         'MY.XRDCP_CREATE_DIR':   'True',
         'MY.SingularityImage':   '"/cvmfs/unpacked.cern.ch/registry.hub.docker.com/fermilab/fnal-dev-sl7:latest"',
-    })
+    }
+    if cfg.copy_to_eos:
+        sub_dict['transfer_output_files'] = ', '.join(cfg.copy_to_eos)
+    sub = htcondor.Submit(sub_dict)
 
     # Build per-job itemdata
     itemdata = []
     src = cfg.source
 
     if isinstance(src, GeneratorSource):
-        n_jobs     = src.n_events // src.n_events_per_job
+        n_jobs     = src.n_events /.txtevents_per_job
         digits_job = len(str(n_jobs - 1))
 
         for j in range(n_jobs):
-            job_index = '{num:0{width}}'.format(num=j, width=digits_job)
+            job_index = f'{j:0{digits_job}}'
 
             overrides = [
                 f'-p n_events={src.n_events_per_job}',
@@ -242,15 +231,13 @@ def cli(card_file, submit, print_cards):
             })
 
     else:  # FileSource
-        n_files    = len(src.eos_input_files)
-        n_total    = src.n_jobs_per_input_file * n_files
-        digits_file = len(str(n_files - 1))
+        n_total    = src.n_jobs_per_input_file * len(src.eos_input_files)
         digits_job  = len(str(n_total - 1))
 
         for i, f in enumerate(src.eos_input_files):
             for k in range(src.n_jobs_per_input_file):
                 job_idx_int = i * src.n_jobs_per_input_file + k
-                job_index   = '{num:0{width}}'.format(num=job_idx_int, width=digits_job)
+                job_index   = f'{job_idx_int:0{digits_job}}'
 
                 overrides = []
                 if src.n_events_per_job is not None:

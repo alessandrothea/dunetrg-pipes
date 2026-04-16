@@ -181,6 +181,84 @@ def resolve_config_path(name: str) -> str:
     sys.exit(1)
 
 
+def _resolve_fcl(name: str) -> Optional[str]:
+    """Return the resolved path of a FCL file, or None if not found.
+    Checks: absolute path, CWD-relative path, then FHICL_FILE_PATH."""
+    if os.path.isabs(name):
+        return name if os.path.isfile(name) else None
+    if os.path.isfile(name):
+        return name
+    fhicl_path = os.environ.get("FHICL_FILE_PATH", "")
+    for directory in fhicl_path.split(":"):
+        if not directory:
+            continue
+        candidate = os.path.join(directory, name)
+        if os.path.isfile(candidate):
+            return candidate
+    return None
+
+
+def preflight_check_fcls(
+    stages: Dict[str, Any],
+    sequence: List[str],
+    first_stage: int,
+    last_stage_run: int,
+    dry_run: bool,
+) -> None:
+    """Check that all FCL files for stages that will run can be resolved.
+    Collects all failures before reporting so the user sees everything at once."""
+    # Gather results first so we know the outcome before printing.
+    rows: List[tuple] = []   # (idx, stage_name, fcl_name, resolved_or_None)
+    for idx, name in enumerate(sequence):
+        if idx < first_stage or idx > last_stage_run:
+            continue
+        stage_def = stages.get(name)
+        if isinstance(stage_def, str):
+            fcl_name = stage_def
+        elif isinstance(stage_def, dict):
+            fcl_name = stage_def.get("template", "")
+        else:
+            continue
+        rows.append((idx, name, fcl_name, _resolve_fcl(fcl_name)))
+
+    missing = [r for r in rows if r[3] is None]
+
+    if _RICH:
+        _console.print()
+        _console.rule("[bold]Pre-flight FCL check[/bold]", style="dim white", align="left")
+        tbl = Table(show_header=True,
+                    box=__import__('rich.box', fromlist=['SIMPLE']).SIMPLE)
+        tbl.add_column("#",       style="dim", width=3)
+        tbl.add_column("Stage",   style="bold")
+        tbl.add_column("FCL",     style="cyan")
+        tbl.add_column("Status")
+        for idx, name, fcl_name, resolved in rows:
+            if resolved:
+                status = f"[green]\u2714[/green] [dim]{resolved}[/dim]"
+            else:
+                status = "[bold red]\u2718  not found[/bold red]"
+            tbl.add_row(str(idx), name, fcl_name, status)
+        _console.print(tbl)
+    else:
+        print("\nPre-flight FCL check")
+        print("-" * 40)
+        for idx, name, fcl_name, resolved in rows:
+            mark   = "\u2714" if resolved else "\u2718"
+            detail = resolved if resolved else "NOT FOUND"
+            print(f"  {mark}  [{idx}] {name}  {fcl_name}  ->  {detail}")
+        print()
+
+    if missing:
+        if dry_run:
+            _warn(f"{len(missing)} FCL file(s) not found (dry-run: continuing anyway)")
+        else:
+            _error(
+                f"{len(missing)} FCL file(s) could not be resolved. "
+                f"Check FHICL_FILE_PATH and stage definitions."
+            )
+            sys.exit(1)
+
+
 def find_in_FHICL_FILE_PATH(filename: str, dry_run: bool = False) -> str:
     """Search FHICL_FILE_PATH for a template FCL file."""
     fhicl_path = os.environ.get("FHICL_FILE_PATH", "")
@@ -656,6 +734,8 @@ def main() -> None:
         keep_last_hist_file, keep_last_art_file,
         stages, sequence,
     )
+
+    preflight_check_fcls(stages, sequence, first_stage, last_stage_run, args.dry_run)
 
     if args.summary:
         return

@@ -1,0 +1,14 @@
+universe                = vanilla
+executable              = job_wrapper.sh
+arguments               = $(ProcId)
+output                  = logs/job.$(ClusterId).$(ProcId).out
+error                   = logs/job.$(ClusterId).$(ProcId).err
+log                     = logs/job.$(ClusterId).log
++JobFlavour             = "tomorrow"
+should_transfer_files   = YES
+transfer_input_files    = job_wrapper.sh
+transfer_output_files   = output
+output_destination      = root://eosuser.cern.ch//eos/home-t/thea/condor_eos_test/$(ClusterId)/
+MY.XRDCP_CREATE_DIR     = True
+MY.SendCredential       = True
+queue 3

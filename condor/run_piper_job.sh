@@ -24,29 +24,3 @@ echo "  args:         $*"
 source "${SETUP_SCRIPT}"
 
 python3 "${LAR_PIPER_SCRIPT}" "$@"
-
-# Optional copy-back to EOS (set via copy_to_eos in the piper-condor job card)
-# TODO: move to a separate script?
-if [ -n "${XRDCP_SOURCES:-}" ]; then
-    echo "=== xrdcp copy-back ==="
-    echo "  destination: ${EOS_JOB_OUTPUT}"
-
-    # Create destination directory before copying.
-    # EOS_JOB_OUTPUT has the form root://<server>/<path>; strip the URL prefix
-    # to get the bare path that xrdfs expects.
-    _EOS_SERVER="${EOS_JOB_OUTPUT%%/eos/*}"       # e.g. root://eosuser.cern.ch
-    _EOS_PATH="${EOS_JOB_OUTPUT#${_EOS_SERVER}}"  # e.g. /eos/home-t/thea/...
-    xrdfs "${_EOS_SERVER}" mkdir -p "${_EOS_PATH}"
-
-    IFS=':' read -ra _SOURCES <<< "${XRDCP_SOURCES}"
-    for _src in "${_SOURCES[@]}"; do
-        echo "  copying: ${_src}"
-        if [ -d "${_src}" ]; then
-            xrdcp -r "${_src}" "${EOS_JOB_OUTPUT}"
-        elif [ -f "${_src}" ]; then
-            xrdcp "${_src}" "${EOS_JOB_OUTPUT}"
-        else
-            echo "  WARNING: '${_src}' not found, skipping"
-        fi
-    done
-fi
