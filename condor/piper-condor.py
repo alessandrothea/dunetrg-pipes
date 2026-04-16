@@ -90,6 +90,38 @@ def to_eos(p):
     return f"root://eosuser.cern.ch/{p}"
 
 
+def _print_summary(cfg: PiperJobConfig, n_jobs: int, submit: bool) -> None:
+    """Print a human-readable job submission summary."""
+    src = cfg.source
+    if isinstance(src, GeneratorSource):
+        src_desc = (
+            f'generator  |  {src.n_events} events total'
+            f'  |  {src.n_events_per_job} per job'
+            f'  |  run {src.run_number}'
+        )
+    else:
+        n_files = len(src.eos_input_files)
+        src_desc = f'file  |  {n_files} file(s) × {src.n_jobs_per_input_file} subjob(s)'
+        if src.n_events_per_job is not None:
+            src_desc += f'  |  {src.n_events_per_job} events/job'
+
+    mode = '[green]SUBMIT[/green]' if submit else '[yellow]DRY RUN[/yellow] (use -s to submit)'
+
+    W = 14  # label column width
+    print()
+    print('[bold]=== piper-condor ===[/bold]')
+    print(f'  {"label:":{W}} {cfg.label}')
+    print(f'  {"pipeline:":{W}} {cfg.pipeline_config.name}')
+    print(f'  {"setup:":{W}} {cfg.setup_script}')
+    print(f'  {"output:":{W}} {cfg.eos_output_folder}')
+    print(f'  {"source:":{W}} {src_desc}')
+    print(f'  {"jobs:":{W}} {n_jobs}')
+    if cfg.copy_to_eos:
+        print(f'  {"copy to EOS:":{W}} {", ".join(cfg.copy_to_eos)}')
+    print(f'  {"mode:":{W}} {mode}')
+    print()
+
+
 def _build_env(cfg: PiperJobConfig) -> str:
     """Build the HTCondor environment string for a piper job."""
     env = f'SETUP_SCRIPT={cfg.setup_script} LAR_PIPER_SCRIPT={_LAR_PIPER_SCRIPT}'
@@ -163,8 +195,6 @@ def cli(card_file, submit, print_cards):
         digits_job = len(str(n_jobs - 1))
 
         for j in range(n_jobs):
-            print(f"[cyan]Creating generator job {j}[/cyan]")
-
             job_index = '{num:0{width}}'.format(num=j, width=digits_job)
 
             overrides = [
@@ -187,8 +217,6 @@ def cli(card_file, submit, print_cards):
 
         for i, f in enumerate(src.eos_input_files):
             for k in range(src.n_jobs_per_input_file):
-                print(f"[cyan]Creating job: file {i} subjob {k}[/cyan]")
-
                 job_idx_int = i * src.n_jobs_per_input_file + k
                 job_index   = '{num:0{width}}'.format(num=job_idx_int, width=digits_job)
 
@@ -204,6 +232,8 @@ def cli(card_file, submit, print_cards):
                     'job_args':   ' '.join(overrides) + f' {cfg.pipeline_config.name}',
                     'input_file': to_eos(f),
                 })
+
+    _print_summary(cfg, len(itemdata), submit)
 
     if print_cards:
         print(sub)
