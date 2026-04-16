@@ -34,9 +34,9 @@ if [ -n "${XRDCP_SOURCES:-}" ]; then
     for _src in "${_SOURCES[@]}"; do
         echo "  copying: ${_src}"
         if [ -d "${_src}" ]; then
-            xrdcp -r "${_src}" "${EOS_JOB_OUTPUT}"
+            xrdcp --mkdir -r "${_src}" "${EOS_JOB_OUTPUT}"
         elif [ -f "${_src}" ]; then
-            xrdcp "${_src}" "${EOS_JOB_OUTPUT}"
+            xrdcp --mkdir "${_src}" "${EOS_JOB_OUTPUT}"
         else
             echo "  WARNING: '${_src}' not found, skipping"
         fi
