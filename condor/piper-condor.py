@@ -122,6 +122,38 @@ def _print_summary(cfg: PiperJobConfig, n_jobs: int, submit: bool) -> None:
     print()
 
 
+def _expand(template: str, item: dict) -> str:
+    """Expand HTCondor itemdata macros in *template*.
+
+    Replaces $(key) with item[key] for each key in *item*.
+    $(ClusterId) and $(ProcId) are replaced with the literal strings
+    <ClusterId> and <ProcId> since those are only known after submission.
+    """
+    s = template.replace('$(ClusterId)', '<ClusterId>').replace('$(ProcId)', '<ProcId>')
+    for k, v in item.items():
+        s = s.replace(f'$({k})', str(v))
+    return s
+
+
+def _print_job_cards(sub: htcondor.Submit, itemdata: list) -> None:
+    """Print the submit description template and each job's expanded key fields."""
+    print('[bold]--- Submit description ---[/bold]')
+    print(str(sub))
+
+    tmpl_dst = sub['output_destination']
+    tmpl_env = sub['environment']
+
+    print(f'[bold]--- Per-job expansion ({len(itemdata)} job(s)) ---[/bold]')
+    for item in itemdata:
+        print(f'  [cyan]job {item["job_index"]}[/cyan]')
+        print(f'    arguments:  {item["job_args"]}')
+        if 'input_file' in item:
+            print(f'    input:      {item["input_file"]}')
+        print(f'    output:     {_expand(tmpl_dst, item)}')
+        print(f'    env:        {_expand(tmpl_env, item)}')
+    print()
+
+
 def _build_env(cfg: PiperJobConfig) -> str:
     """Build the HTCondor environment string for a piper job."""
     env = f'SETUP_SCRIPT={cfg.setup_script} LAR_PIPER_SCRIPT={_LAR_PIPER_SCRIPT}'
@@ -236,8 +268,7 @@ def cli(card_file, submit, print_cards):
     _print_summary(cfg, len(itemdata), submit)
 
     if print_cards:
-        print(sub)
-        print(itemdata)
+        _print_job_cards(sub, itemdata)
 
     if submit:
         schedd = htcondor.Schedd()
