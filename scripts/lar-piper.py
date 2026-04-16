@@ -311,7 +311,7 @@ def _check_input_files(src_opt: str, dry_run: bool) -> None:
 def _stage_rule(i: int, total: int, name: str, stage_def: Any) -> None:
     """Print a stage separator using rich Rule or a plain bar."""
     tag = (
-        f"[loop \u00d7{stage_def.get('n_iter', '?')}]"
+        f"[loop \u00d7{stage_def.get('n_step', '?')}]"
         if isinstance(stage_def, dict) else "[simple]"
     )
     title = f"Stage {i + 1}/{total}: {name}  {tag}"
@@ -367,7 +367,7 @@ def _print_summary(
         for idx, name in enumerate(sequence):
             v = stages.get(name)
             if isinstance(v, dict):
-                stype = f"loop \u00d7{v.get('n_iter', '?')}"
+                stype = f"loop \u00d7{v.get('n_step', '?')}"
                 sconf = f"template: {v.get('template', '?')}"
             elif isinstance(v, str):
                 stype = "simple"
@@ -412,7 +412,7 @@ def _print_summary(
             else:
                 marker = ""
             if isinstance(v, dict):
-                print(f"  {idx}. {name}  [loop ×{v.get('n_iter','?')}]{marker}")
+                print(f"  {idx}. {name}  [loop ×{v.get('n_step','?')}]{marker}")
             else:
                 print(f"  {idx}. {name}  → {v}{marker}")
         print()
@@ -491,54 +491,55 @@ def run_loop_stage(
     use_gdb: bool = False,
 ) -> str:
     """
-    Execute a loop stage: run `lar` n_iter times with per-iteration FCLs.
-    Returns the path to the last iteration's ROOT output file.
+    Execute a loop stage: run `lar` n_step times with per-step FCLs.
+    Returns the path to the last step's ROOT output file.
     """
     template     = stage_def["template"]
-    n_iter       = int(stage_def.get("n_iter", 1))
-    skip_iter    = int(stage_def.get("skip_iter", 0) or 0)
+    n_step       = int(stage_def.get("n_step", 1))
+    n_digits     = len(str(max(n_step - 1, 0)))
+    skip_step    = int(stage_def.get("skip_step", 0) or 0)
     gen_cmd_tmpl = stage_def.get("generator_command")
     delete_inter = bool(stage_def.get("delete_intermediate_products", False))
 
     template_path = find_in_FHICL_FILE_PATH(template, dry_run=dry_run)
 
-    if skip_iter > 0:
-        last_skipped_dir  = f"{out_dir}/{skip_iter - 1}"
+    if skip_step > 0:
+        last_skipped_dir  = f"{out_dir}/step_{skip_step - 1:0{n_digits}d}"
         last_skipped_root = f"{last_skipped_dir}/{stage_name}_{pipeline_name}.root"
-        iter_src_opt = f"-s {last_skipped_root}"
-        _check_input_files(iter_src_opt, dry_run)
+        step_src_opt = f"-s {last_skipped_root}"
+        _check_input_files(step_src_opt, dry_run)
         _print(
-            f"  [dim]\u23e9 skipping iterations [bold]0..{skip_iter - 1}[/bold]; "
+            f"  [dim]\u23e9 skipping steps [bold]0..{skip_step - 1}[/bold]; "
             f"assuming input: {last_skipped_root}[/dim]"
         )
     else:
-        iter_src_opt = src_file_opt
+        step_src_opt = src_file_opt
 
     prev_root_file: Optional[str] = None
     prev_hist_file: Optional[str] = None
 
-    for i in range(n_iter):
-        iter_is_last = (i == n_iter - 1)
-        iter_dir  = f"{out_dir}/{i}"
-        iter_fcl  = f"{iter_dir}/{stage_name}.fcl"
-        iter_root = f"{iter_dir}/{stage_name}_{pipeline_name}.root"
-        iter_hist = f"{iter_dir}/{stage_name}_{pipeline_name}_hist.root"
+    for i in range(n_step):
+        step_is_last = (i == n_step - 1)
+        step_dir  = f"{out_dir}/step_{i:0{n_digits}d}"
+        step_fcl  = f"{step_dir}/{stage_name}.fcl"
+        step_root = f"{step_dir}/{stage_name}_{pipeline_name}.root"
+        step_hist = f"{step_dir}/{stage_name}_{pipeline_name}_hist.root"
 
-        if i < skip_iter:
-            prev_root_file = iter_root
-            prev_hist_file = iter_hist
+        if i < skip_step:
+            prev_root_file = step_root
+            prev_hist_file = step_hist
             continue
 
         if not dry_run:
-            if not os.path.isdir(iter_dir):
-                os.makedirs(iter_dir)
-                _print(f"  [iter {i}] [green]\u271a Created:[/green] {iter_dir}")
+            if not os.path.isdir(step_dir):
+                os.makedirs(step_dir)
+                _print(f"  [step {i}] [green]\u271a Created:[/green] {step_dir}")
 
         # --- FCL generation ---
         if gen_cmd_tmpl is not None:
             gen_cmd      = gen_cmd_tmpl.format(gen_idx=i, loop_index=LOOP_INDEX_MARKER)
-            full_gen_cmd = f"{gen_cmd} {template_path} > {iter_fcl}"
-            _print(f"  [iter {i}] [cyan]gen[/cyan] (cmd): {full_gen_cmd}")
+            full_gen_cmd = f"{gen_cmd} {template_path} > {step_fcl}"
+            _print(f"  [step {i}] [cyan]gen[/cyan] (cmd): {full_gen_cmd}")
             if not dry_run:
                 proc = subprocess.Popen(
                     full_gen_cmd, shell=True,
@@ -550,59 +551,59 @@ def run_loop_stage(
                 rc = proc.wait()
                 if rc != 0:
                     _error(
-                        f"generator command failed at iteration {i}.\n"
+                        f"generator command failed at step {i}.\n"
                         f"  Command: {full_gen_cmd}"
                     )
                     sys.exit(rc)
         else:
             _print(
-                f"  [iter {i}] [cyan]gen[/cyan] (replace): "
+                f"  [step {i}] [cyan]gen[/cyan] (replace): "
                 f"[dim]'{LOOP_INDEX_MARKER}'[/dim] \u2192 [bold]{i}[/bold]"
-                f"  {template_path} \u2192 {iter_fcl}"
+                f"  {template_path} \u2192 {step_fcl}"
             )
             if not dry_run:
                 with open(template_path, "r", encoding="utf-8") as fh:
                     content = fh.read()
                 content = content.replace(LOOP_INDEX_MARKER, str(i))
-                with open(iter_fcl, "w", encoding="utf-8") as fh:
+                with open(step_fcl, "w", encoding="utf-8") as fh:
                     fh.write(content)
 
         # --- lar invocation ---
         out_root_opt = (
-            f"-o {iter_root}"
-            if (not (is_last_stage and iter_is_last)) or keep_last_art_file
+            f"-o {step_root}"
+            if (not (is_last_stage and step_is_last)) or keep_last_art_file
             else ''
         )
         out_tfs_opt = (
-            f"-T {iter_hist}"
-            if (not (is_last_stage and iter_is_last)) or keep_last_hist_file
+            f"-T {step_hist}"
+            if (not (is_last_stage and step_is_last)) or keep_last_hist_file
             else ''
         )
 
         if not dry_run:
-            os.chdir(iter_dir)
+            os.chdir(step_dir)
 
         run_lar_stage(
-            cfg_file=iter_fcl,
-            src_file_opt=iter_src_opt,
+            cfg_file=step_fcl,
+            src_file_opt=step_src_opt,
             nev_opt=nev_opt,
             skip_events_opt='',   # skip_events applies only to the first non-loop stage
             out_root_opt=out_root_opt,
             out_tfs_opt=out_tfs_opt,
             dry_run=dry_run,
-            prefix=f"  [iter {i}] ",
-            first_event_opt=first_event_opt if i == skip_iter else '',
+            prefix=f"  [step {i}] ",
+            first_event_opt=first_event_opt if i == skip_step else '',
             use_gdb=use_gdb,
         )
 
         if delete_inter and prev_root_file is not None and not dry_run:
             if os.path.isfile(prev_root_file):
                 os.remove(prev_root_file)
-                _print(f"  [iter {i}] [dim red]\u2717 deleted:[/dim red] {prev_root_file}")
+                _print(f"  [step {i}] [dim red]\u2717 deleted:[/dim red] {prev_root_file}")
 
-        prev_root_file = iter_root
-        prev_hist_file = iter_hist
-        iter_src_opt   = f"-s {iter_root}"
+        prev_root_file = step_root
+        prev_hist_file = step_hist
+        step_src_opt   = f"-s {step_root}"
 
     if not dry_run:
         os.chdir(out_dir)

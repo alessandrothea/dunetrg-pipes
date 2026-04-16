@@ -120,6 +120,7 @@ def cli(card_file, submit):
         '+JobFlavour':         f'"{cfg.job_flavour}"',
         'MY.SendCredential':   'True',
         'MY.XRDCP_CREATE_DIR': 'True',
+        'MY.XRDCP_EXTRA_ARGS': '--retry 3',
         'MY.SingularityImage': f'"{cfg.singularity_image}"',
         'request_memory':      cfg.request_memory,
     })
