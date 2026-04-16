@@ -16,6 +16,10 @@ _SCRIPT_DIR      = Path(__file__).resolve().parent
 _RUN_PIPER       = _SCRIPT_DIR / 'run_piper_job.sh'
 _LAR_PIPER_SCRIPT = _SCRIPT_DIR.parent / 'scripts' / 'lar-piper.py'
 
+_DEFAULT_JOB_FLAVOUR      = "tomorrow"
+_DEFAULT_SINGULARITY_IMAGE = "/cvmfs/unpacked.cern.ch/registry.hub.docker.com/fermilab/fnal-dev-sl7:latest"
+_DEFAULT_REQUEST_MEMORY    = "3 GB"
+
 #------------------------------------------------------------------------------
 
 class GeneratorSource(BaseModel):
@@ -72,6 +76,9 @@ class PiperJobConfig(BaseModel):
     eos_output_folder: DirectoryPath
     source:            Source
     copy_to_eos:       Optional[List[str]] = None  # local paths (relative to job CWD) to transfer to EOS via transfer_output_files
+    job_flavour:       str = _DEFAULT_JOB_FLAVOUR
+    singularity_image: str = _DEFAULT_SINGULARITY_IMAGE
+    request_memory:    str = _DEFAULT_REQUEST_MEMORY
 
     @field_validator('pipeline_config', 'setup_script', 'eos_output_folder', mode='before')
     def expand_and_validate_path(cls, value):
@@ -114,6 +121,9 @@ def _print_summary(cfg: PiperJobConfig, n_jobs: int, submit: bool) -> None:
     print(f'  {"setup:":{W}} {cfg.setup_script}')
     print(f'  {"output:":{W}} {cfg.eos_output_folder}')
     print(f'  {"source:":{W}} {src_desc}')
+    print(f'  {"job_flavour:":{W}} {cfg.job_flavour}')
+    print(f'  {"singularity:":{W}} {cfg.singularity_image}')
+    print(f'  {"memory:":{W}} {cfg.request_memory}')
     print(f'  {"jobs:":{W}} {n_jobs}')
     if cfg.copy_to_eos:
         print(f'  {"copy to EOS:":{W}} {", ".join(cfg.copy_to_eos)}')
@@ -198,10 +208,11 @@ def cli(card_file, submit, print_cards):
         'transfer_input_files':  transfer_files,
         'output_destination':    to_eos(cfg.eos_output_folder) + f'/{cfg.label}_$(ClusterId)/job_$(job_index)/',
         'environment':           f'"SETUP_SCRIPT={cfg.setup_script} LAR_PIPER_SCRIPT={_LAR_PIPER_SCRIPT}"',
-        '+JobFlavour':           '"tomorrow"',
+        '+JobFlavour':           f'"{cfg.job_flavour}"',
         'MY.SendCredential':     'True',
         'MY.XRDCP_CREATE_DIR':   'True',
-        'MY.SingularityImage':   '"/cvmfs/unpacked.cern.ch/registry.hub.docker.com/fermilab/fnal-dev-sl7:latest"',
+        'MY.SingularityImage':   f'"{cfg.singularity_image}"',
+        'request_memory':        cfg.request_memory,
     }
     if cfg.copy_to_eos:
         sub_dict['transfer_output_files'] = ', '.join(cfg.copy_to_eos)
@@ -212,7 +223,7 @@ def cli(card_file, submit, print_cards):
     src = cfg.source
 
     if isinstance(src, GeneratorSource):
-        n_jobs     = src.n_events /.txtevents_per_job
+        n_jobs     = src.n_events // src.n_events_per_job
         digits_job = len(str(n_jobs - 1))
 
         for j in range(n_jobs):

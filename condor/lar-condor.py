@@ -11,6 +11,10 @@ from pydantic import BaseModel, FilePath, DirectoryPath, field_validator, model_
 from typing import Optional, List
 import htcondor2 as htcondor
 
+_DEFAULT_JOB_FLAVOUR      = "tomorrow"
+_DEFAULT_SINGULARITY_IMAGE = "/cvmfs/unpacked.cern.ch/registry.hub.docker.com/fermilab/fnal-dev-sl7:latest"
+_DEFAULT_REQUEST_MEMORY    = "3 GB"
+
 #------------------------------------------------------------------------------
 
 class JobConfig(BaseModel):
@@ -26,6 +30,9 @@ class JobConfig(BaseModel):
     output_file_prefix: Optional[str] = None
     eos_output_folder : DirectoryPath
     eos_input_files: Optional[List[FilePath]] = None
+    job_flavour:       str = _DEFAULT_JOB_FLAVOUR
+    singularity_image: str = _DEFAULT_SINGULARITY_IMAGE
+    request_memory:    str = _DEFAULT_REQUEST_MEMORY
 
 
     # @field_validator('larsoft_runner', 'config_fcl', 'work_area', 'eos_output_folder', mode='before')
@@ -110,10 +117,11 @@ def cli(card_file, submit):
         'transfer_executable' : 'false',
         'should_transfer_files': 'YES',
         'output_destination':  to_eos(cfg.eos_output_folder) + f'/{cfg.label}_$(ClusterId)/job_$(job_index)/',
-        '+JobFlavour': '"tomorrow"',
-        'MY.SendCredential': 'True',
-        'MY.XRDCP_CREATE_DIR':  'True',
-        'MY.SingularityImage':  '"/cvmfs/unpacked.cern.ch/registry.hub.docker.com/fermilab/fnal-dev-sl7:latest"',
+        '+JobFlavour':         f'"{cfg.job_flavour}"',
+        'MY.SendCredential':   'True',
+        'MY.XRDCP_CREATE_DIR': 'True',
+        'MY.SingularityImage': f'"{cfg.singularity_image}"',
+        'request_memory':      cfg.request_memory,
     })
 
     # Add (parameterised) input files transfer if needed
