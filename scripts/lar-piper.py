@@ -18,6 +18,7 @@ import argparse
 import json
 import os
 import re
+import shutil
 import sys
 import subprocess
 from typing import Any, Dict, List, Optional, Sequence
@@ -368,7 +369,8 @@ def _print_summary(
             v = stages.get(name)
             if isinstance(v, dict):
                 stype = f"loop \u00d7{v.get('n_step', '?')}"
-                sconf = f"template: {v.get('template', '?')}"
+                lsp   = v.get('last_step_products', 'symlink')
+                sconf = f"template: {v.get('template', '?')}  last_step: {lsp}"
             elif isinstance(v, str):
                 stype = "simple"
                 sconf = v
@@ -412,7 +414,8 @@ def _print_summary(
             else:
                 marker = ""
             if isinstance(v, dict):
-                print(f"  {idx}. {name}  [loop ×{v.get('n_step','?')}]{marker}")
+                lsp = v.get('last_step_products', 'symlink')
+                print(f"  {idx}. {name}  [loop ×{v.get('n_step','?')}  last_step: {lsp}]{marker}")
             else:
                 print(f"  {idx}. {name}  → {v}{marker}")
         print()
@@ -494,12 +497,16 @@ def run_loop_stage(
     Execute a loop stage: run `lar` n_step times with per-step FCLs.
     Returns the path to the last step's ROOT output file.
     """
-    template     = stage_def["template"]
-    n_step       = int(stage_def.get("n_step", 1))
-    n_digits     = len(str(max(n_step - 1, 0)))
-    skip_step    = int(stage_def.get("skip_step", 0) or 0)
-    gen_cmd_tmpl = stage_def.get("generator_command")
-    delete_inter = bool(stage_def.get("delete_intermediate_products", False))
+    template       = stage_def["template"]
+    n_step         = int(stage_def.get("n_step", 1))
+    n_digits       = len(str(max(n_step - 1, 0)))
+    skip_step      = int(stage_def.get("skip_step", 0) or 0)
+    gen_cmd_tmpl   = stage_def.get("generator_command")
+    delete_inter   = bool(stage_def.get("delete_intermediate_products", False))
+    last_step_mode = stage_def.get("last_step_products", "symlink")
+    if last_step_mode not in ("symlink", "move"):
+        _error(f"stage '[bold]{stage_name}[/bold]': 'last_step_products' must be 'symlink' or 'move', got '{last_step_mode}'.")
+        sys.exit(1)
 
     template_path = find_in_FHICL_FILE_PATH(template, dry_run=dry_run)
 
@@ -608,21 +615,26 @@ def run_loop_stage(
     if not dry_run:
         os.chdir(out_dir)
 
-    # Symlink the last iteration's outputs into out_dir so downstream stages
-    # and the user can reference them at the stage level without knowing the
-    # iteration index.
+    # Place the last step's outputs in out_dir so downstream stages and the
+    # user can reference them at the stage level without knowing the step index.
     link_root = f"{out_dir}/{stage_name}_{pipeline_name}.root"
     link_hist = f"{out_dir}/{stage_name}_{pipeline_name}_hist.root"
-    # Relative targets keep the directory structure portable.
-    rel_root = os.path.relpath(prev_root_file, out_dir)
-    rel_hist = os.path.relpath(prev_hist_file, out_dir)
 
-    for link, rel_target in ((link_root, rel_root), (link_hist, rel_hist)):
-        _print(f"  [dim]\u2192 symlink:[/dim] [cyan]{link}[/cyan] \u2192 [dim]{rel_target}[/dim]")
-        if not dry_run:
-            if os.path.islink(link):
-                os.unlink(link)
-            os.symlink(rel_target, link)
+    if last_step_mode == "symlink":
+        # Relative targets keep the directory structure portable.
+        rel_root = os.path.relpath(prev_root_file, out_dir)
+        rel_hist = os.path.relpath(prev_hist_file, out_dir)
+        for link, rel_target in ((link_root, rel_root), (link_hist, rel_hist)):
+            _print(f"  [dim]\u2192 symlink:[/dim] [cyan]{link}[/cyan] \u2192 [dim]{rel_target}[/dim]")
+            if not dry_run:
+                if os.path.islink(link):
+                    os.unlink(link)
+                os.symlink(rel_target, link)
+    else:  # "move"
+        for src, dst in ((prev_root_file, link_root), (prev_hist_file, link_hist)):
+            _print(f"  [dim]\u2192 move:[/dim] [cyan]{src}[/cyan] \u2192 [dim]{dst}[/dim]")
+            if not dry_run:
+                shutil.move(src, dst)
 
     return link_root
 
