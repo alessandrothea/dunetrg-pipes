@@ -37,6 +37,7 @@ lar-piper.py [-n] [-s] [-g] [-p KEY=VALUE ...] <config.yaml>
 | `keep_last_art_file` | bool | Write the ROOT art file for the last stage (default `True`) |
 | `keep_last_hist_file` | bool | Write the histogram ROOT file for the last stage (default `True`) |
 | `input_files` | string or list | External input file(s) for the first stage; omit for generation pipelines. Accepts local paths or URLs (`http://`, `https://`, `root://`, `xroot://`) |
+| `input_file_lists` | string or list | Plain-text file(s) each containing one input path per line; expanded and merged into `input_files` before the pipeline runs. Lines starting with `#` and blank lines are ignored. |
 | `stages` | mapping | Stage definitions (see below) |
 | `sequence` | list | Ordered list of stage names to execute |
 

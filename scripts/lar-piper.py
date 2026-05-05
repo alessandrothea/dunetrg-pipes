@@ -162,6 +162,24 @@ def build_input_files_args(files: Sequence[str]) -> str:
     return ' '.join(args)
 
 
+def build_input_file_lists_args(lists: Sequence[str]) -> str:
+    args: List[str] = []
+    for f in lists:
+        args.extend(["-S", f])
+    return ' '.join(args)
+
+
+def _read_list_file(path: str) -> List[str]:
+    """Read a plain-text input-list file and return the paths it contains.
+    Lines starting with '#' and blank lines are ignored."""
+    try:
+        with open(path) as fh:
+            return [ln.strip() for ln in fh if ln.strip() and not ln.strip().startswith('#')]
+    except OSError as exc:
+        _error(f"cannot read input_file_lists entry '[bold]{path}[/bold]': {exc}")
+        sys.exit(1)
+
+
 def resolve_config_path(name: str) -> str:
     """Resolve a pipeline datacard filename via LAR_PIPE_PATH."""
     if os.path.isabs(name) or os.path.isfile(name):
@@ -286,27 +304,40 @@ def find_in_FHICL_FILE_PATH(filename: str, dry_run: bool = False) -> str:
 # Output helpers
 # ----------------------------
 
-def _check_input_files(src_opt: str, dry_run: bool) -> None:
-    """Parse -s <file> tokens from src_opt and verify each file exists.
+def _check_input_files(files: List[str], dry_run: bool) -> None:
+    """Verify that each path in *files* is accessible (local) or a recognised URL.
     In dry-run mode reports status without exiting."""
-    if not src_opt:
+    if not files:
         return
-    parts = src_opt.split()
-    files = [parts[j + 1] for j, p in enumerate(parts) if p == '-s' and j + 1 < len(parts)]
-    if dry_run:
-        for f in files:
-            if f.startswith(("http://", "https://", "root://", "xroot://")):
+    missing: List[str] = []
+    for f in files:
+        if f.startswith(("http://", "https://", "root://", "xroot://")):
+            if dry_run:
                 _print(f"  [blue]↗[/blue] input url:       [dim]{f}[/dim]")
-            elif os.path.isfile(f):
+        elif os.path.isfile(f):
+            if dry_run:
                 _print(f"  [green]✔[/green] input exists:    [dim]{f}[/dim]")
-            else:
+        else:
+            if dry_run:
                 _print(f"  [yellow]✘ input not found: {f}[/yellow]")
-        return
-    missing = [f for f in files if not f.startswith(("http://", "https://", "root://", "xroot://")) and not os.path.isfile(f)]
+            else:
+                missing.append(f)
     if missing:
         for f in missing:
             _error(f"input file not found: [bold]{f}[/bold]")
         sys.exit(1)
+
+
+def _check_input_file_lists(list_files: List[str], dry_run: bool) -> None:
+    """Verify each list file is accessible, then verify every path it contains.
+    Delegates to _check_input_files for the actual per-path checks."""
+    if not list_files:
+        return
+    _check_input_files(list_files, dry_run)
+    for lf in list_files:
+        if not os.path.isfile(lf):
+            continue   # already reported by _check_input_files above
+        _check_input_files(_read_list_file(lf), dry_run)
 
 
 def _stage_rule(i: int, total: int, name: str, stage_def: Any) -> None:
@@ -328,6 +359,7 @@ def _print_summary(
     pipeline_name: str,
     config_path: str,
     input_files: List[str],
+    input_file_lists: List[str],
     n_events: int,
     skip_events: int,
     first_event: Any,
@@ -346,6 +378,7 @@ def _print_summary(
         cfg_table.add_column()
         cfg_table.add_row("pipeline",    f"[bold]{pipeline_name}[/bold]")
         cfg_table.add_row("config",      config_path)
+        cfg_table.add_row("input_file_lists", ' '.join(input_file_lists) if input_file_lists else "[dim](none)[/dim]")
         cfg_table.add_row("input_files", ' '.join(input_files) if input_files else "[dim](none)[/dim]")
         cfg_table.add_row("n_events",     str(n_events))
         cfg_table.add_row("skip_events",  str(skip_events))
@@ -391,6 +424,7 @@ def _print_summary(
         # Plain fallback
         print(f"pipeline      = {pipeline_name}")
         print(f"config        = {config_path}")
+        print(f"input_file_lists = {' '.join(input_file_lists) if input_file_lists else '(none)'}")
         print(f"input_files   = {' '.join(input_files) if input_files else '(none)'}")
         print(f"n_events      = {n_events}")
         print(f"skip_events   = {skip_events}")
@@ -514,7 +548,7 @@ def run_loop_stage(
         last_skipped_dir  = f"{out_dir}/step_{skip_step - 1:0{n_digits}d}"
         last_skipped_root = f"{last_skipped_dir}/{stage_name}_{pipeline_name}.root"
         step_src_opt = f"-s {last_skipped_root}"
-        _check_input_files(step_src_opt, dry_run)
+        _check_input_files([last_skipped_root], dry_run)
         _print(
             f"  [dim]\u23e9 skipping steps [bold]0..{skip_step - 1}[/bold]; "
             f"assuming input: {last_skipped_root}[/dim]"
@@ -727,6 +761,7 @@ def main() -> None:
     keep_last_hist_file = bool(cfg.get("keep_last_hist_file", True))
     keep_last_art_file  = bool(cfg.get("keep_last_art_file", True))
     input_files         = as_input_files(cfg.get("input_files"))
+    input_file_lists    = as_input_files(cfg.get("input_file_lists"))
 
     stages = cfg.get("stages") or {}
     if not isinstance(stages, dict):
@@ -742,7 +777,7 @@ def main() -> None:
     last_stage_run = (n_stages - 1) if last_stage is None else int(last_stage)
 
     _print_summary(
-        pipeline_name, config_path, input_files,
+        pipeline_name, config_path, input_files, input_file_lists,
         n_events, skip_events, first_event, first_stage, last_stage_run,
         keep_last_hist_file, keep_last_art_file,
         stages, sequence,
@@ -774,16 +809,25 @@ def main() -> None:
 
         if i == 0:
             nev_opt = f"-n {n_events}"
-            if not input_files:
-                src_file_opt = ''
-                skip_events_opt   = ''
+            if not input_files and not input_file_lists:
+                src_file_opt    = ''
+                skip_events_opt = ''
             else:
-                src_file_opt = build_input_files_args(input_files)
-                skip_events_opt   = f"--nskip {skip_events}"
+                parts = []
+                if input_files:
+                    parts.append(build_input_files_args(input_files))
+                if input_file_lists:
+                    parts.append(build_input_file_lists_args(input_file_lists))
+                src_file_opt    = ' '.join(parts)
+                skip_events_opt = f"--nskip {skip_events}"
+            check_direct = input_files
+            check_lists  = input_file_lists
         else:
-            nev_opt      = "-n -1"
-            src_file_opt = f"-s {out_root_file}"
-            skip_events_opt   = ''
+            nev_opt         = "-n -1"
+            src_file_opt    = f"-s {out_root_file}"
+            skip_events_opt = ''
+            check_direct = [out_root_file]
+            check_lists  = []
 
         out_dir       = f"{base_dir}/{s}"
         out_root_file = f"{out_dir}/{s}_{pipeline_name}.root"
@@ -796,7 +840,8 @@ def main() -> None:
             _print(f"  [dim]\u23e9 skipped (after last_stage)[/dim]")
             continue
 
-        _check_input_files(src_file_opt, args.dry_run)
+        _check_input_files(check_direct, args.dry_run)
+        _check_input_file_lists(check_lists, args.dry_run)
 
         if not args.dry_run:
             if not os.path.isdir(out_dir):
