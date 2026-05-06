@@ -21,6 +21,7 @@ import re
 import shutil
 import sys
 import subprocess
+import pathlib
 from typing import Any, Dict, List, Optional, Sequence
 
 # ----------------------------
@@ -158,14 +159,14 @@ def as_input_files(node: Any) -> List[str]:
 def build_input_files_args(files: Sequence[str]) -> str:
     args: List[str] = []
     for f in files:
-        args.extend(["-s", f])
+        args.extend(["-s", str(pathlib.Path(f).absolute())])
     return ' '.join(args)
 
 
 def build_input_file_lists_args(lists: Sequence[str]) -> str:
     args: List[str] = []
     for f in lists:
-        args.extend(["-S", f])
+        args.extend(["-S", str(pathlib.Path(f).absolute())])
     return ' '.join(args)
 
 

@@ -93,7 +93,16 @@ class PiperJobConfig(BaseModel):
 #------------------------------------------------------------------------------
 
 def to_eos(p):
-    return f"root://eosuser.cern.ch/{p}"
+    if p.parents[-2] != Path('/eos'):
+        raise ValueError(f"Path {p} is not a valid eos path")
+    
+    if p.parts[2].startswith('user'):
+        root_prefix = "root://eosuser.cern.ch"
+    elif p.parts[2].startswith('project'):
+        root_prefix = "root://eosproject.cern.ch"
+    else:
+        raise RuntimeError(f"{p} cannot be apped to a xrootd eos path")
+    return f"{root_prefix}/{p}"
 
 
 def _print_summary(cfg: PiperJobConfig, n_jobs: int, submit: bool) -> None:
