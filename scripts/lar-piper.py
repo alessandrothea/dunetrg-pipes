@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-lar-richpipe — lar-pipe with rich terminal output.
+lar-piper — LAr pipeline runner with rich terminal output.
 
 Usage:
-  lar-richpipe [-n|--dry-run] [-p KEY=VALUE ...] <config.(json|yaml|yml)>
+  lar-piper [-n|--dry-run] [-p KEY=VALUE ...] <config.(json|yaml|yml)>
 
 Notes:
   - Requires `rich` for coloured output (pip install rich).
@@ -22,7 +22,9 @@ import shutil
 import sys
 import subprocess
 import pathlib
-from typing import Any, Dict, List, Optional, Sequence
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 # ----------------------------
 # Rich setup (optional dep)
@@ -32,11 +34,12 @@ try:
     from rich.console import Console
     from rich.table import Table
     from rich.rule import Rule  # noqa: F401  (used implicitly via console.rule)
+    from rich import box as _rich_box
     _console     = Console(highlight=False)
     _err_console = Console(stderr=True, highlight=False)
     _RICH = True
 except ImportError:
-    _console = _err_console = None
+    _console = _err_console = _rich_box = None
     _RICH = False
 
 
@@ -46,7 +49,7 @@ def _strip_markup(s: str) -> str:
 
 
 def _print(msg: str = "", **kw) -> None:
-    """lar-pipe stdout message."""
+    """lar-piper stdout message."""
     if _RICH:
         _console.print(msg, **kw)
     else:
@@ -73,17 +76,14 @@ def _error(msg: str) -> None:
 # Parser abstraction
 # ----------------------------
 
-class ConfigParserBase:
-    def load(self, path: str) -> Dict[str, Any]:
-        raise NotImplementedError
+class ConfigParserBase(ABC):
+    @abstractmethod
+    def load(self, path: str) -> Dict[str, Any]: ...
 
 
 class JSONWithCommentsDecoder(json.JSONDecoder):
-    def __init__(self, **kw):
-        super().__init__(**kw)
-
     def decode(self, s: str):
-        s = '\n'.join(l if not l.lstrip().startswith('//') else '' for l in s.split('\n'))
+        s = '\n'.join(line if not line.lstrip().startswith('//') else '' for line in s.split('\n'))
         return super().decode(s)
 
 
@@ -156,18 +156,19 @@ def as_input_files(node: Any) -> List[str]:
     return []
 
 
-def build_input_files_args(files: Sequence[str]) -> str:
+def _build_source_args(flag: str, files: Sequence[str]) -> str:
     args: List[str] = []
     for f in files:
-        args.extend(["-s", str(pathlib.Path(f).absolute())])
+        args.extend([flag, str(pathlib.Path(f).absolute())])
     return ' '.join(args)
+
+
+def build_input_files_args(files: Sequence[str]) -> str:
+    return _build_source_args("-s", files)
 
 
 def build_input_file_lists_args(lists: Sequence[str]) -> str:
-    args: List[str] = []
-    for f in lists:
-        args.extend(["-S", str(pathlib.Path(f).absolute())])
-    return ' '.join(args)
+    return _build_source_args("-S", lists)
 
 
 def _read_list_file(path: str) -> List[str]:
@@ -181,17 +182,25 @@ def _read_list_file(path: str) -> List[str]:
         sys.exit(1)
 
 
-def resolve_config_path(name: str) -> str:
-    """Resolve a pipeline datacard filename via LAR_PIPE_PATH."""
-    if os.path.isabs(name) or os.path.isfile(name):
-        return name
-    lar_pipe_path = os.environ.get("LAR_PIPE_PATH", "")
-    for directory in lar_pipe_path.split(":"):
+def _search_env_path(name: str, path_str: str) -> Optional[str]:
+    """Search a colon-separated path string for *name* and return the first match, or None."""
+    for directory in path_str.split(":"):
         if not directory:
             continue
         candidate = os.path.join(directory, name)
         if os.path.isfile(candidate):
             return candidate
+    return None
+
+
+def _resolve_config_path(name: str) -> str:
+    """Resolve a pipeline datacard filename via LAR_PIPE_PATH."""
+    if os.path.isabs(name) or os.path.isfile(name):
+        return name
+    lar_pipe_path = os.environ.get("LAR_PIPE_PATH", "")
+    found = _search_env_path(name, lar_pipe_path)
+    if found:
+        return found
     searched = [d for d in lar_pipe_path.split(":") if d]
     locations = ["<CWD>"] + searched
     _error(
@@ -208,101 +217,34 @@ def _resolve_fcl(name: str) -> Optional[str]:
         return name if os.path.isfile(name) else None
     if os.path.isfile(name):
         return name
-    fhicl_path = os.environ.get("FHICL_FILE_PATH", "")
-    for directory in fhicl_path.split(":"):
-        if not directory:
-            continue
-        candidate = os.path.join(directory, name)
-        if os.path.isfile(candidate):
-            return candidate
-    return None
-
-
-def preflight_check_fcls(
-    stages: Dict[str, Any],
-    sequence: List[str],
-    first_stage: int,
-    last_stage_run: int,
-    dry_run: bool,
-) -> None:
-    """Check that all FCL files for stages that will run can be resolved.
-    Collects all failures before reporting so the user sees everything at once."""
-    # Gather results first so we know the outcome before printing.
-    rows: List[tuple] = []   # (idx, stage_name, fcl_name, resolved_or_None)
-    for idx, name in enumerate(sequence):
-        if idx < first_stage or idx > last_stage_run:
-            continue
-        stage_def = stages.get(name)
-        if isinstance(stage_def, str):
-            fcl_name = stage_def
-        elif isinstance(stage_def, dict):
-            fcl_name = stage_def.get("template", "")
-        else:
-            continue
-        rows.append((idx, name, fcl_name, _resolve_fcl(fcl_name)))
-
-    missing = [r for r in rows if r[3] is None]
-
-    if _RICH:
-        _console.print()
-        _console.rule("[bold]Pre-flight FCL check[/bold]", style="dim white", align="left")
-        tbl = Table(show_header=True,
-                    box=__import__('rich.box', fromlist=['SIMPLE']).SIMPLE)
-        tbl.add_column("#",       style="dim", width=3)
-        tbl.add_column("Stage",   style="bold")
-        tbl.add_column("FCL",     style="cyan")
-        tbl.add_column("Status")
-        for idx, name, fcl_name, resolved in rows:
-            if resolved:
-                status = f"[green]\u2714[/green] [dim]{resolved}[/dim]"
-            else:
-                status = "[bold red]\u2718  not found[/bold red]"
-            tbl.add_row(str(idx), name, fcl_name, status)
-        _console.print(tbl)
-    else:
-        print("\nPre-flight FCL check")
-        print("-" * 40)
-        for idx, name, fcl_name, resolved in rows:
-            mark   = "\u2714" if resolved else "\u2718"
-            detail = resolved if resolved else "NOT FOUND"
-            print(f"  {mark}  [{idx}] {name}  {fcl_name}  ->  {detail}")
-        print()
-
-    if missing:
-        if dry_run:
-            _warn(f"{len(missing)} FCL file(s) not found (dry-run: continuing anyway)")
-        else:
-            _error(
-                f"{len(missing)} FCL file(s) could not be resolved. "
-                f"Check FHICL_FILE_PATH and stage definitions."
-            )
-            sys.exit(1)
-
-
-def find_in_FHICL_FILE_PATH(filename: str, dry_run: bool = False) -> str:
-    """Search FHICL_FILE_PATH for a template FCL file."""
-    fhicl_path = os.environ.get("FHICL_FILE_PATH", "")
-    for directory in fhicl_path.split(":"):
-        if not directory:
-            continue
-        candidate = os.path.join(directory, filename)
-        if os.path.isfile(candidate):
-            return candidate
-    if dry_run:
-        _warn(
-            f"template '[bold]{filename}[/bold]' not found in FHICL_FILE_PATH — "
-            f"using placeholder in dry-run output."
-        )
-        return f"<{filename}>"
-    _error(
-        f"template '[bold]{filename}[/bold]' not found in FHICL_FILE_PATH.\n"
-        f"  FHICL_FILE_PATH={fhicl_path!r}"
-    )
-    sys.exit(1)
+    return _search_env_path(name, os.environ.get("FHICL_FILE_PATH", ""))
 
 
 # ----------------------------
-# Output helpers
+# Pipeline configuration
+# ----------------------------
+
+@dataclass
+class PipelineConfig:
+    config_path:         str
+    pipeline_name:       str
+    n_events:            int
+    skip_events:         int
+    first_stage:         int
+    last_stage:          Optional[int]   # None means "run to end of sequence"
+    last_stage_run:      int             # resolved index of the last stage to execute
+    first_event:         Any
+    first_event_opt:     str             # pre-built -e flag string (empty if not set)
+    keep_last_art_file:  bool
+    keep_last_hist_file: bool
+    input_files:         List[str]
+    input_file_lists:    List[str]
+    stages:              Dict[str, Any]
+    sequence:            List[str]
+
+
+# ----------------------------
+# Input validation
 # ----------------------------
 
 def _check_input_files(files: List[str], dry_run: bool) -> None:
@@ -341,6 +283,86 @@ def _check_input_file_lists(list_files: List[str], dry_run: bool) -> None:
         _check_input_files(_read_list_file(lf), dry_run)
 
 
+# ----------------------------
+# FCL resolution / preflight
+# ----------------------------
+
+def _resolve_fhicl_template(filename: str, dry_run: bool = False) -> str:
+    """Search FHICL_FILE_PATH for a template FCL file."""
+    fhicl_path = os.environ.get("FHICL_FILE_PATH", "")
+    found = _search_env_path(filename, fhicl_path)
+    if found:
+        return found
+    if dry_run:
+        _warn(
+            f"template '[bold]{filename}[/bold]' not found in FHICL_FILE_PATH — "
+            f"using placeholder in dry-run output."
+        )
+        return f"<{filename}>"
+    _error(
+        f"template '[bold]{filename}[/bold]' not found in FHICL_FILE_PATH.\n"
+        f"  FHICL_FILE_PATH={fhicl_path!r}"
+    )
+    sys.exit(1)
+
+
+def preflight_check_fcls(cfg: PipelineConfig, dry_run: bool) -> None:
+    """Check that all FCL files for stages that will run can be resolved.
+    Collects all failures before reporting so the user sees everything at once."""
+    rows: List[Tuple[int, str, str, Optional[str]]] = []
+    for idx, name in enumerate(cfg.sequence):
+        if idx < cfg.first_stage or idx > cfg.last_stage_run:
+            continue
+        stage_def = cfg.stages.get(name)
+        if isinstance(stage_def, str):
+            fcl_name = stage_def
+        elif isinstance(stage_def, dict):
+            fcl_name = stage_def.get("template", "")
+        else:
+            continue
+        rows.append((idx, name, fcl_name, _resolve_fcl(fcl_name)))
+
+    missing = [r for r in rows if r[3] is None]
+
+    if _RICH:
+        _console.print()
+        _console.rule("[bold]Pre-flight FCL check[/bold]", style="dim white", align="left")
+        tbl = Table(show_header=True, box=_rich_box.SIMPLE)
+        tbl.add_column("#",       style="dim", width=3)
+        tbl.add_column("Stage",   style="bold")
+        tbl.add_column("FCL",     style="cyan")
+        tbl.add_column("Status")
+        for idx, name, fcl_name, resolved in rows:
+            status = (
+                f"[green]\u2714[/green] [dim]{resolved}[/dim]" if resolved
+                else "[bold red]\u2718  not found[/bold red]"
+            )
+            tbl.add_row(str(idx), name, fcl_name, status)
+        _console.print(tbl)
+    else:
+        print("\nPre-flight FCL check")
+        print("-" * 40)
+        for idx, name, fcl_name, resolved in rows:
+            mark   = "\u2714" if resolved else "\u2718"
+            detail = resolved if resolved else "NOT FOUND"
+            print(f"  {mark}  [{idx}] {name}  {fcl_name}  ->  {detail}")
+        print()
+
+    if missing:
+        if dry_run:
+            _warn(f"{len(missing)} FCL file(s) not found (dry-run: continuing anyway)")
+        else:
+            _error(
+                f"{len(missing)} FCL file(s) could not be resolved. "
+                f"Check FHICL_FILE_PATH and stage definitions."
+            )
+            sys.exit(1)
+
+
+# ----------------------------
+# Output helpers
+# ----------------------------
+
 def _stage_rule(i: int, total: int, name: str, stage_def: Any) -> None:
     """Print a stage separator using rich Rule or a plain bar."""
     tag = (
@@ -356,51 +378,37 @@ def _stage_rule(i: int, total: int, name: str, stage_def: Any) -> None:
         print(f"\n{bar}\n  {title}\n{bar}")
 
 
-def _print_summary(
-    pipeline_name: str,
-    config_path: str,
-    input_files: List[str],
-    input_file_lists: List[str],
-    n_events: int,
-    skip_events: int,
-    first_event: Any,
-    first_stage: int,
-    last_stage_run: int,
-    keep_last_hist_file: bool,
-    keep_last_art_file: bool,
-    stages: Dict[str, Any],
-    sequence: List[str],
-) -> None:
+def _print_summary(cfg: PipelineConfig) -> None:
     """Print pipeline configuration as rich tables (or plain text)."""
     if _RICH:
         # --- config params table ---
-        cfg_table = Table(show_header=False, box=None, padding=(0, 2))
-        cfg_table.add_column(style="bold cyan", no_wrap=True)
-        cfg_table.add_column()
-        cfg_table.add_row("pipeline",    f"[bold]{pipeline_name}[/bold]")
-        cfg_table.add_row("config",      config_path)
-        cfg_table.add_row("input_file_lists", ' '.join(input_file_lists) if input_file_lists else "[dim](none)[/dim]")
-        cfg_table.add_row("input_files", ' '.join(input_files) if input_files else "[dim](none)[/dim]")
-        cfg_table.add_row("n_events",     str(n_events))
-        cfg_table.add_row("skip_events",  str(skip_events))
-        cfg_table.add_row("first_event",
-            f"{first_event['run']}:{first_event['subrun']}:{first_event['event']}"
-            if isinstance(first_event, dict) else "[dim](none)[/dim]"
+        tbl = Table(show_header=False, box=None, padding=(0, 2))
+        tbl.add_column(style="bold cyan", no_wrap=True)
+        tbl.add_column()
+        tbl.add_row("pipeline",         f"[bold]{cfg.pipeline_name}[/bold]")
+        tbl.add_row("config",           cfg.config_path)
+        tbl.add_row("input_file_lists", ' '.join(cfg.input_file_lists) if cfg.input_file_lists else "[dim](none)[/dim]")
+        tbl.add_row("input_files",      ' '.join(cfg.input_files)      if cfg.input_files      else "[dim](none)[/dim]")
+        tbl.add_row("n_events",         str(cfg.n_events))
+        tbl.add_row("skip_events",      str(cfg.skip_events))
+        tbl.add_row("first_event",
+            f"{cfg.first_event['run']}:{cfg.first_event['subrun']}:{cfg.first_event['event']}"
+            if isinstance(cfg.first_event, dict) else "[dim](none)[/dim]"
         )
-        cfg_table.add_row("first_stage", str(first_stage))
-        cfg_table.add_row("last_stage",  str(last_stage_run))
-        cfg_table.add_row("keep_last_art_file",  str(keep_last_art_file))
-        cfg_table.add_row("keep_last_hist_file", str(keep_last_hist_file))
-        _console.print(cfg_table)
+        tbl.add_row("first_stage",          str(cfg.first_stage))
+        tbl.add_row("last_stage",           str(cfg.last_stage_run))
+        tbl.add_row("keep_last_art_file",   str(cfg.keep_last_art_file))
+        tbl.add_row("keep_last_hist_file",  str(cfg.keep_last_hist_file))
+        _console.print(tbl)
 
         # --- stages table ---
-        stg_table = Table(show_header=True, box=__import__('rich.box', fromlist=['SIMPLE']).SIMPLE)
-        stg_table.add_column("#",     style="dim", width=3)
-        stg_table.add_column("Stage", style="bold")
-        stg_table.add_column("Type",  style="cyan", no_wrap=True)
-        stg_table.add_column("Configuration")
-        for idx, name in enumerate(sequence):
-            v = stages.get(name)
+        stg = Table(show_header=True, box=_rich_box.SIMPLE)
+        stg.add_column("#",     style="dim", width=3)
+        stg.add_column("Stage", style="bold")
+        stg.add_column("Type",  style="cyan", no_wrap=True)
+        stg.add_column("Configuration")
+        for idx, name in enumerate(cfg.sequence):
+            v = cfg.stages.get(name)
             if isinstance(v, dict):
                 stype = f"loop \u00d7{v.get('n_step', '?')}"
                 lsp   = v.get('last_step_products', 'symlink')
@@ -411,40 +419,40 @@ def _print_summary(
             else:
                 stype = "?"
                 sconf = str(v)
-            out_of_range = idx < first_stage or idx > last_stage_run
+            out_of_range = idx < cfg.first_stage or idx > cfg.last_stage_run
             row_style = "dim" if out_of_range else ""
-            if idx < first_stage:
+            if idx < cfg.first_stage:
                 skip_mark = " [dim](before first_stage)[/dim]"
-            elif idx > last_stage_run:
+            elif idx > cfg.last_stage_run:
                 skip_mark = " [dim](after last_stage)[/dim]"
             else:
                 skip_mark = ""
-            stg_table.add_row(str(idx), name + skip_mark, stype, sconf, style=row_style)
-        _console.print(stg_table)
+            stg.add_row(str(idx), name + skip_mark, stype, sconf, style=row_style)
+        _console.print(stg)
     else:
         # Plain fallback
-        print(f"pipeline      = {pipeline_name}")
-        print(f"config        = {config_path}")
-        print(f"input_file_lists = {' '.join(input_file_lists) if input_file_lists else '(none)'}")
-        print(f"input_files   = {' '.join(input_files) if input_files else '(none)'}")
-        print(f"n_events      = {n_events}")
-        print(f"skip_events   = {skip_events}")
+        print(f"pipeline         = {cfg.pipeline_name}")
+        print(f"config           = {cfg.config_path}")
+        print(f"input_file_lists = {' '.join(cfg.input_file_lists) if cfg.input_file_lists else '(none)'}")
+        print(f"input_files      = {' '.join(cfg.input_files)      if cfg.input_files      else '(none)'}")
+        print(f"n_events         = {cfg.n_events}")
+        print(f"skip_events      = {cfg.skip_events}")
         fe_str = (
-            f"{first_event['run']}:{first_event['subrun']}:{first_event['event']}"
-            if isinstance(first_event, dict) else "(none)"
+            f"{cfg.first_event['run']}:{cfg.first_event['subrun']}:{cfg.first_event['event']}"
+            if isinstance(cfg.first_event, dict) else "(none)"
         )
-        print(f"first_event   = {fe_str}")
-        print(f"first_stage   = {first_stage}")
-        print(f"last_stage    = {last_stage_run}")
-        print(f"keep_last_art_file  = {keep_last_art_file}")
-        print(f"keep_last_hist_file = {keep_last_hist_file}")
+        print(f"first_event      = {fe_str}")
+        print(f"first_stage      = {cfg.first_stage}")
+        print(f"last_stage       = {cfg.last_stage_run}")
+        print(f"keep_last_art_file  = {cfg.keep_last_art_file}")
+        print(f"keep_last_hist_file = {cfg.keep_last_hist_file}")
         print()
         print("Stages (sequence order):")
-        for idx, name in enumerate(sequence):
-            v = stages.get(name)
-            if idx < first_stage:
+        for idx, name in enumerate(cfg.sequence):
+            v = cfg.stages.get(name)
+            if idx < cfg.first_stage:
                 marker = " [before first_stage]"
-            elif idx > last_stage_run:
+            elif idx > cfg.last_stage_run:
                 marker = " [after last_stage]"
             else:
                 marker = ""
@@ -494,6 +502,8 @@ def run_lar_stage(
     if dry_run:
         return
 
+    # shell=True is intentional: lar is invoked as a shell command and may
+    # rely on shell environment setup (aliases, UPS/spack env, etc.).
     with subprocess.Popen(
         cmd_line,
         stdout=subprocess.PIPE,
@@ -543,7 +553,7 @@ def run_loop_stage(
         _error(f"stage '[bold]{stage_name}[/bold]': 'last_step_products' must be 'symlink' or 'move', got '{last_step_mode}'.")
         sys.exit(1)
 
-    template_path = find_in_FHICL_FILE_PATH(template, dry_run=dry_run)
+    template_path = _resolve_fhicl_template(template, dry_run=dry_run)
 
     if skip_step > 0:
         last_skipped_dir  = f"{out_dir}/step_{skip_step - 1:0{n_digits}d}"
@@ -678,26 +688,28 @@ def run_loop_stage(
 # CLI helpers
 # ----------------------------
 
-def apply_overrides(cfg: Dict[str, Any], params: List[str]) -> None:
-    """Apply KEY=VALUE overrides to cfg in-place. KEY may use dot notation."""
+def _parse_override_value(s: str) -> Any:
+    """Parse a -p override value using YAML if available, else JSON, else raw string."""
     try:
         import yaml as _yaml
-        _loads = _yaml.safe_load
+        return _yaml.safe_load(s)
     except ImportError:
-        import json as _json
-        def _loads(s):
-            try:
-                return _json.loads(s)
-            except _json.JSONDecodeError:
-                return s
+        pass
+    try:
+        return json.loads(s)
+    except json.JSONDecodeError:
+        return s
 
+
+def apply_overrides(cfg: Dict[str, Any], params: List[str]) -> None:
+    """Apply KEY=VALUE overrides to cfg in-place. KEY may use dot notation."""
     for param in params:
         if "=" not in param:
             _error(f"--param '[bold]{param}[/bold]' must be in KEY=VALUE form.")
             sys.exit(1)
         key_path, _, raw_value = param.partition("=")
         keys  = key_path.split(".")
-        value = _loads(raw_value)
+        value = _parse_override_value(raw_value)
 
         node = cfg
         for k in keys[:-1]:
@@ -713,7 +725,7 @@ def apply_overrides(cfg: Dict[str, Any], params: List[str]) -> None:
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        prog="lar-richpipe",
+        prog="lar-piper",
         description="LAr pipeline runner with rich terminal output.",
     )
     p.add_argument("-n", "--dry-run", action="store_true",
@@ -729,7 +741,7 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
-def build_first_event_opt(first_event: Any) -> str:
+def _build_first_event_opt(first_event: Any) -> str:
     """Validate and convert a first_event config value to a lar -e option string."""
     if not isinstance(first_event, dict):
         return ''
@@ -740,29 +752,11 @@ def build_first_event_opt(first_event: Any) -> str:
     return f"-e {first_event['run']}:{first_event['subrun']}:{first_event['event']}"
 
 
-# ----------------------------
-# Main
-# ----------------------------
-
-def main() -> None:
-    args = parse_args()
-
-    config_path = resolve_config_path(args.config)
-    parser      = get_parser_for(config_path)
-    cfg         = parser.load(config_path)
-    apply_overrides(cfg, args.params)
-
-    pipeline_name       = str(cfg.get("pipeline_name", "") or "")
-    n_events            = int(cfg.get("n_events", 0) or 0)
-    skip_events         = int(cfg.get("skip_events", 0) or 0)
-    first_stage         = int(cfg.get("first_stage", 0) or 0)
-    last_stage          = cfg.get("last_stage")   # None → default to full sequence
-    first_event         = cfg.get("first_event")  # None, or dict with run/subrun/event
-    first_event_opt     = build_first_event_opt(first_event)
-    keep_last_hist_file = bool(cfg.get("keep_last_hist_file", True))
-    keep_last_art_file  = bool(cfg.get("keep_last_art_file", True))
-    input_files         = as_input_files(cfg.get("input_files"))
-    input_file_lists    = as_input_files(cfg.get("input_file_lists"))
+def load_pipeline_config(config_arg: str, params: List[str]) -> PipelineConfig:
+    """Load, apply overrides, validate, and return the pipeline configuration."""
+    config_path = _resolve_config_path(config_arg)
+    cfg = get_parser_for(config_path).load(config_path)
+    apply_overrides(cfg, params)
 
     stages = cfg.get("stages") or {}
     if not isinstance(stages, dict):
@@ -774,77 +768,87 @@ def main() -> None:
         _error("'sequence' must be a list/array in the config.")
         sys.exit(1)
 
-    n_stages       = len(sequence)
-    last_stage_run = (n_stages - 1) if last_stage is None else int(last_stage)
+    last_stage = cfg.get("last_stage")
+    n_stages   = len(sequence)
+    first_event = cfg.get("first_event")
 
-    _print_summary(
-        pipeline_name, config_path, input_files, input_file_lists,
-        n_events, skip_events, first_event, first_stage, last_stage_run,
-        keep_last_hist_file, keep_last_art_file,
-        stages, sequence,
+    return PipelineConfig(
+        config_path         = config_path,
+        pipeline_name       = str(cfg.get("pipeline_name", "") or ""),
+        n_events            = int(cfg.get("n_events", 0) or 0),
+        skip_events         = int(cfg.get("skip_events", 0) or 0),
+        first_stage         = int(cfg.get("first_stage", 0) or 0),
+        last_stage          = None if last_stage is None else int(last_stage),
+        last_stage_run      = (n_stages - 1) if last_stage is None else int(last_stage),
+        first_event         = first_event,
+        first_event_opt     = _build_first_event_opt(first_event),
+        keep_last_art_file  = bool(cfg.get("keep_last_art_file", True)),
+        keep_last_hist_file = bool(cfg.get("keep_last_hist_file", True)),
+        input_files         = as_input_files(cfg.get("input_files")),
+        input_file_lists    = as_input_files(cfg.get("input_file_lists")),
+        stages              = stages,
+        sequence            = sequence,
     )
 
-    preflight_check_fcls(stages, sequence, first_stage, last_stage_run, args.dry_run)
 
-    if args.summary:
-        return
-
+def run_pipeline(cfg: PipelineConfig, dry_run: bool, use_gdb: bool) -> None:
+    """Execute the pipeline stage sequence."""
     base_dir      = os.getcwd()
-    out_root_file: str = ""
+    out_root_file = ""
 
-    for i, s in enumerate(sequence):
-        is_last_stage = (i == last_stage_run)
+    for i, s in enumerate(cfg.sequence):
+        is_last_stage = (i == cfg.last_stage_run)
         # keep_last_* flags suppress output only at the true end of the full
         # sequence. If last_stage is explicitly set, all stages write their
         # output files unconditionally.
-        apply_keep_flags = is_last_stage and last_stage is None
+        apply_keep_flags = is_last_stage and cfg.last_stage is None
 
-        stage_def = stages.get(s)
+        stage_def = cfg.stages.get(s)
         if stage_def is None:
             _error(f"stage '[bold]{s}[/bold]' listed in sequence but not defined in stages.")
             sys.exit(1)
 
-        _stage_rule(i, len(sequence), s, stage_def)
+        _stage_rule(i, len(cfg.sequence), s, stage_def)
 
         is_loop = isinstance(stage_def, dict)
 
         if i == 0:
-            nev_opt = f"-n {n_events}"
-            if not input_files and not input_file_lists:
+            nev_opt = f"-n {cfg.n_events}"
+            if not cfg.input_files and not cfg.input_file_lists:
                 src_file_opt    = ''
                 skip_events_opt = ''
             else:
                 parts = []
-                if input_files:
-                    parts.append(build_input_files_args(input_files))
-                if input_file_lists:
-                    parts.append(build_input_file_lists_args(input_file_lists))
+                if cfg.input_files:
+                    parts.append(build_input_files_args(cfg.input_files))
+                if cfg.input_file_lists:
+                    parts.append(build_input_file_lists_args(cfg.input_file_lists))
                 src_file_opt    = ' '.join(parts)
-                skip_events_opt = f"--nskip {skip_events}"
-            check_direct = input_files
-            check_lists  = input_file_lists
+                skip_events_opt = f"--nskip {cfg.skip_events}"
+            check_direct = cfg.input_files
+            check_lists  = cfg.input_file_lists
         else:
             nev_opt         = "-n -1"
             src_file_opt    = f"-s {out_root_file}"
             skip_events_opt = ''
-            check_direct = [out_root_file]
-            check_lists  = []
+            check_direct    = [out_root_file]
+            check_lists     = []
 
         out_dir       = f"{base_dir}/{s}"
-        out_root_file = f"{out_dir}/{s}_{pipeline_name}.root"
-        out_tfs_file  = f"{out_dir}/{s}_{pipeline_name}_hist.root"
+        out_root_file = f"{out_dir}/{s}_{cfg.pipeline_name}.root"
+        out_tfs_file  = f"{out_dir}/{s}_{cfg.pipeline_name}_hist.root"
 
-        if i < first_stage:
+        if i < cfg.first_stage:
             _print(f"  [dim]\u23e9 skipped (before first_stage) — output assumed at {out_root_file}[/dim]")
             continue
-        if i > last_stage_run:
+        if i > cfg.last_stage_run:
             _print(f"  [dim]\u23e9 skipped (after last_stage)[/dim]")
             continue
 
-        _check_input_files(check_direct, args.dry_run)
-        _check_input_file_lists(check_lists, args.dry_run)
+        _check_input_files(check_direct, dry_run)
+        _check_input_file_lists(check_lists, dry_run)
 
-        if not args.dry_run:
+        if not dry_run:
             if not os.path.isdir(out_dir):
                 os.makedirs(out_dir)
                 _print(f"  [green]\u271a Created:[/green] {out_dir}")
@@ -854,20 +858,20 @@ def main() -> None:
             out_root_file = run_loop_stage(
                 stage_name=s,
                 stage_def=stage_def,
-                pipeline_name=pipeline_name,
+                pipeline_name=cfg.pipeline_name,
                 out_dir=out_dir,
                 src_file_opt=src_file_opt,
                 nev_opt=nev_opt,
                 is_last_stage=apply_keep_flags,
-                keep_last_art_file=keep_last_art_file,
-                keep_last_hist_file=keep_last_hist_file,
-                dry_run=args.dry_run,
-                first_event_opt=first_event_opt,
-                use_gdb=args.gdb,
+                keep_last_art_file=cfg.keep_last_art_file,
+                keep_last_hist_file=cfg.keep_last_hist_file,
+                dry_run=dry_run,
+                first_event_opt=cfg.first_event_opt,
+                use_gdb=use_gdb,
             )
         elif isinstance(stage_def, str):
-            out_root_opt = f"-o {out_root_file}" if (not apply_keep_flags or keep_last_art_file) else ''
-            out_tfs_opt  = f"-T {out_tfs_file}"  if (not apply_keep_flags or keep_last_hist_file) else ''
+            out_root_opt = f"-o {out_root_file}" if (not apply_keep_flags or cfg.keep_last_art_file) else ''
+            out_tfs_opt  = f"-T {out_tfs_file}"  if (not apply_keep_flags or cfg.keep_last_hist_file) else ''
             run_lar_stage(
                 cfg_file=stage_def,
                 src_file_opt=src_file_opt,
@@ -875,9 +879,9 @@ def main() -> None:
                 skip_events_opt=skip_events_opt,
                 out_root_opt=out_root_opt,
                 out_tfs_opt=out_tfs_opt,
-                dry_run=args.dry_run,
-                first_event_opt=first_event_opt,
-                use_gdb=args.gdb,
+                dry_run=dry_run,
+                first_event_opt=cfg.first_event_opt,
+                use_gdb=use_gdb,
             )
         else:
             _error(
@@ -885,6 +889,23 @@ def main() -> None:
                 f"({type(stage_def).__name__}). Expected str or dict."
             )
             sys.exit(1)
+
+
+# ----------------------------
+# Main
+# ----------------------------
+
+def main() -> None:
+    args = parse_args()
+    cfg  = load_pipeline_config(args.config, args.params)
+
+    _print_summary(cfg)
+    preflight_check_fcls(cfg, args.dry_run)
+
+    if args.summary:
+        return
+
+    run_pipeline(cfg, args.dry_run, args.gdb)
 
 
 if __name__ == "__main__":

@@ -12,12 +12,14 @@ Two complementary tools for submitting DUNE trigger simulation jobs to an HTCond
 ## Requirements
 
 ```bash
-pip install click htcondor pydantic pyyaml rich
+uv sync
 ```
+
+Requires Python 3.13. Dependencies are declared in `pyproject.toml` and pinned in `uv.lock` (`click`, `htcondor`, `pydantic`, `pyyaml`, `rich`).
 
 Valid Kerberos credentials are required (`kinit` before submitting). Both scripts add credentials to the HTCondor credd daemon automatically.
 
-`piper-condor.py` additionally requires `lar-piper.py` on `PATH` (source `dunetrg-pipes/setup_env.sh`).
+`piper-condor.py` additionally requires `lar-piper.py` at `../scripts/lar-piper.py` relative to the condor directory (i.e. `dunetrg-pipes/scripts/lar-piper.py`). Its absolute path is injected as the `LAR_PIPER_SCRIPT` environment variable and resolved on the compute node via AFS — it is not transferred by HTCondor.
 
 ---
 
@@ -28,10 +30,15 @@ condor/
 ├── lar-condor.py       # Single-stage HTCondor submission
 ├── piper-condor.py     # Full-pipeline HTCondor submission
 ├── run_larsoft_job.sh  # Prototype wrapper (reference only)
-├── run_piper_job.sh    # Generic HTCondor executable for piper jobs
+├── run_piper_job.sh    # HTCondor executable for piper jobs
 ├── pyproject.toml
-├── run/                # Job cards (YAML) — one file per submission
-│   └── eminus_1x8x14_pipeline.yaml
+├── uv.lock
+├── run/                # HTCondor test resources
+│   ├── job_wrapper.sh  # Minimal wrapper used by test_eos.sub
+│   └── test_eos.sub    # Manual submit description for EOS write tests
+├── tests/
+│   ├── test_credd.py
+│   └── test_eos_writing_from_condor.sh
 └── examples/
     ├── example.sub
     ├── runme.sh
@@ -101,23 +108,27 @@ eos_input_files:          # omit for generation jobs (no input)
 
 ## `piper-condor.py` — full-pipeline submission
 
-Submits one complete `lar-piper.py` pipeline run per job. The pipeline YAML and `lar-piper.py` are transferred to the compute node by HTCondor. The `setup_script` is sourced on the node to load the DUNE software environment. All stage output directories (`gen/`, `g4/`, `detsim/`, …) are transferred to EOS when the job completes.
+Submits one complete `lar-piper.py` pipeline run per job. The pipeline YAML is transferred to the compute node by HTCondor. `lar-piper.py` is **not** transferred; its path is passed as the `LAR_PIPER_SCRIPT` environment variable and resolved via AFS on the compute node. The `setup_script` is sourced on the node to load the DUNE software environment. All stage output directories (`gen/`, `g4/`, `detsim/`, …) are transferred to EOS by HTCondor's `output_destination` when the job completes.
 
 The job card has two exclusive `source` modes selected by `source.type`.
 
 ### Usage
 
 ```bash
-# Dry-run:
+# Dry-run (print job summary, do not submit):
 piper-condor.py <card_file.yaml>
 
 # Submit:
 piper-condor.py -s <card_file.yaml>
+
+# Print HTCondor submit description and per-job itemdata expansion:
+piper-condor.py -p <card_file.yaml>
+piper-condor.py -p -s <card_file.yaml>
 ```
 
 ### Job card — generator source
 
-For simulation pipelines that start from scratch (no input files). Number of jobs = `n_events // n_events_per_job`. Each job receives `-p n_events=<n_events_per_job>` and `-p first_event={"run":<run_number>,"subrun":<job_index>,"event":1}`.
+For simulation pipelines that start from scratch (no input files). Number of jobs = `n_events // n_events_per_job`. Each job receives `-p n_events=<n_events_per_job> -p first_event.run=<run_number> -p first_event.subrun=<job_index> -p first_event.event=1`.
 
 ```yaml
 label: 'eminus_1x8x14_pipeline'
@@ -137,7 +148,7 @@ source:
 | `type` | yes | Must be `generator` |
 | `n_events` | yes | Total events for the campaign |
 | `n_events_per_job` | yes | Events each job generates; determines number of jobs |
-| `run_number` | yes | ART run number injected via `-e run:subrun:1` |
+| `run_number` | yes | ART run number; subrun = job index, event = 1 |
 
 ### Job card — file source
 
@@ -173,14 +184,14 @@ source:
 | `pipeline_config` | yes | Absolute path to a `lar-piper.py` pipeline YAML datacard |
 | `setup_script` | yes | Absolute path to the DUNE software setup script; sourced on the compute node |
 | `eos_output_folder` | yes | Destination directory on EOS (must be under `/eos`) |
-| `copy_to_eos` | no | List of local paths (relative to job CWD) to copy to EOS after the pipeline completes; directories are copied recursively (`xrdcp -r`), files directly (`xrdcp`) |
+| `copy_to_eos` | no | List of local paths (relative to job CWD) to transfer to EOS after the pipeline completes via HTCondor's `transfer_output_files`; directories are transferred recursively, files directly |
 
 Example with copy-back:
 
 ```yaml
 copy_to_eos:
-  - 'logs/'           # directory — copied with xrdcp -r
-  - 'debug_dump.root' # file — copied with xrdcp
+  - 'logs/'           # directory
+  - 'debug_dump.root' # file
 ```
 
 ### Output structure
@@ -206,7 +217,7 @@ Output naming within each stage follows the `pipeline_name` field in the pipelin
 
 The HTCondor executable used by `piper-condor.py`. It is found automatically at `condor/run_piper_job.sh` relative to `piper-condor.py`. No path needs to be specified in the job card.
 
-The script sources `$SETUP_SCRIPT` (injected by HTCondor) and then runs `python3 lar-piper.py "$@"`, forwarding all job arguments. `lar-piper.py` is transferred to the job working directory alongside the pipeline YAML.
+The script sources `$SETUP_SCRIPT` and then runs `python3 "$LAR_PIPER_SCRIPT" "$@"`, forwarding all job arguments. Both `SETUP_SCRIPT` and `LAR_PIPER_SCRIPT` are injected as HTCondor environment variables by `piper-condor.py`. The pipeline YAML is transferred to the job working directory by HTCondor.
 
 ---
 
@@ -219,7 +230,7 @@ The script sources `$SETUP_SCRIPT` (injected by HTCondor) and then runs `python3
 | Setup | embedded in `larsoft_runner` | `setup_script` field |
 | Job args | `-c fcl -n N --nskip K -o out.root` | `-p n_events=N -p skip_events=K pipeline.yaml` |
 | Output per job | single ROOT file | full stage directory tree |
-| Transferred inputs | input ROOT file | pipeline YAML + `lar-piper.py` + optional input ROOT |
+| Transferred inputs | input ROOT file | pipeline YAML + optional input ROOT |
 
 ---
 
@@ -229,6 +240,7 @@ The script sources `$SETUP_SCRIPT` (injected by HTCondor) and then runs `python3
 |---------|-------|
 | Container | Fermilab SL7 (`/cvmfs/unpacked.cern.ch/…/fermilab/fnal-dev-sl7:latest`) |
 | Job flavour | `tomorrow` |
-| Output storage | EOS via XRootD (`root://eosuser.cern.ch/`) |
+| Output storage | EOS via HTCondor `output_destination` (`root://eosuser.cern.ch/`) |
 | Credentials | Kerberos (added to credd daemon at submit time) |
 | Directory creation | `MY.XRDCP_CREATE_DIR: True` |
+| Memory | 3 GB (default; override with `request_memory` field) |
