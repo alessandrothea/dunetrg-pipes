@@ -58,7 +58,7 @@ A stage whose value is a mapping is treated as a loop: `lar` is run `n_iter` tim
 ```yaml
 stages:
   detsim_loop:
-    template: "detsim_dunevd10kt_1x8x14_3view_30deg_tpc_only_template.fcl"
+    template: "detsim_dunevd10kt_1x8x14_3view_30deg_tpc_only_single_template.fcl"
     n_iter: 112
     skip_iter: 0                       # optional, default 0
     generator_command: "sed 's/@loop_index@/process_apa_index: {gen_idx}/'"  # optional
@@ -140,7 +140,7 @@ stages:
   g4:  "supernova_g4_dunevd10kt_1x8x14_3view_30deg.fcl"
 
   detsim_loop:
-    template: "detsim_dunevd10kt_1x8x14_3view_30deg_tpc_only_template.fcl"
+    template: "detsim_dunevd10kt_1x8x14_3view_30deg_tpc_only_single_template.fcl"
     n_iter: 112
     delete_intermediate_products: True
 
