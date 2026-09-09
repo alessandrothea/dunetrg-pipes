@@ -53,14 +53,14 @@ The value is a path to an FCL file. Relative paths are resolved from the working
 
 ### Loop stage
 
-A stage whose value is a mapping is treated as a loop: `lar` is run `n_iter` times, each time with a freshly generated FCL derived from a template.
+A stage whose value is a mapping is treated as a loop: `lar` is run `n_step` times, each time with a freshly generated FCL derived from a template.
 
 ```yaml
 stages:
   detsim_loop:
     template: "detsim_dunevd10kt_1x8x14_3view_30deg_tpc_only_single_template.fcl"
-    n_iter: 112
-    skip_iter: 0                       # optional, default 0
+    n_step: 112
+    skip_step: 0                       # optional, default 0
     generator_command: "sed 's/@loop_index@/process_apa_index: {gen_idx}/'"  # optional
     delete_intermediate_products: True # optional, default False
 ```
@@ -68,10 +68,11 @@ stages:
 | Key | Required | Description |
 |-----|----------|-------------|
 | `template` | yes | FCL template filename; looked up in `FHICL_FILE_PATH` |
-| `n_iter` | yes | Total number of iterations |
-| `skip_iter` | no | Skip the first N iterations (assume their output already exists) |
-| `generator_command` | no | Shell command to produce the per-iteration FCL (see below) |
-| `delete_intermediate_products` | no | Delete each iteration's ROOT output once consumed by the next |
+| `n_step` | yes | Total number of steps |
+| `skip_step` | no | Skip the first N steps (assume their output already exists) |
+| `generator_command` | no | Shell command to produce the per-step FCL (see below) |
+| `delete_intermediate_products` | no | Delete each step's ROOT output once consumed by the next |
+| `last_step_products` | no | How to expose the last step's output at the stage level: `"symlink"` (default) creates a relative symlink; `"move"` moves the file |
 
 #### FCL generation — two modes
 
@@ -141,7 +142,7 @@ stages:
 
   detsim_loop:
     template: "detsim_dunevd10kt_1x8x14_3view_30deg_tpc_only_single_template.fcl"
-    n_iter: 112
+    n_step: 112
     delete_intermediate_products: True
 
   detsim_pds: "detsim_dunevd10kt_1x8x14_3view_30deg_pds_only.fcl"
@@ -161,11 +162,11 @@ Any config value can be overridden on the command line without editing the datac
 # Change event count
 lar-piper.py -p n_events=10 pipeline.yaml
 
-# Resume a loop from iteration 36
-lar-piper.py -p stages.detsim_loop.skip_iter=36 pipeline.yaml
+# Resume a loop from step 36
+lar-piper.py -p stages.detsim_loop.skip_step=36 pipeline.yaml
 
 # Combine multiple overrides with dry-run
-lar-piper.py -n -p skip_stages=2 -p stages.detsim_loop.n_iter=5 pipeline.yaml
+lar-piper.py -n -p first_stage=2 -p stages.detsim_loop.n_step=5 pipeline.yaml
 
 # Override a boolean
 lar-piper.py -p keep_last_art_file=False pipeline.yaml

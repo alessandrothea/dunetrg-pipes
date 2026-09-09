@@ -3,7 +3,8 @@
 lar-piper — LAr pipeline runner with rich terminal output.
 
 Usage:
-  lar-piper [-n|--dry-run] [-p KEY=VALUE ...] <config.(json|yaml|yml)>
+  lar-piper [-n|--dry-run] [-s|--summary] [-g|--gdb] [--no-timeit]
+            [-p KEY=VALUE ...] <config.(json|yaml|yml)>
 
 Notes:
   - Requires `rich` for coloured output (pip install rich).
@@ -18,6 +19,7 @@ import argparse
 import json
 import os
 import re
+import shlex
 import shutil
 import sys
 import subprocess
@@ -159,7 +161,7 @@ def as_input_files(node: Any) -> List[str]:
 def _build_source_args(flag: str, files: Sequence[str]) -> str:
     args: List[str] = []
     for f in files:
-        args.extend([flag, str(pathlib.Path(f).absolute())])
+        args.extend([flag, shlex.quote(str(pathlib.Path(f).absolute()))])
     return ' '.join(args)
 
 
@@ -278,9 +280,8 @@ def _check_input_file_lists(list_files: List[str], dry_run: bool) -> None:
         return
     _check_input_files(list_files, dry_run)
     for lf in list_files:
-        if not os.path.isfile(lf):
-            continue   # already reported by _check_input_files above
-        _check_input_files(_read_list_file(lf), dry_run)
+        if os.path.isfile(lf):
+            _check_input_files(_read_list_file(lf), dry_run)
 
 
 # ----------------------------
@@ -482,11 +483,12 @@ def run_lar_stage(
     prefix: str = "",
     first_event_opt: str = "",
     use_gdb: bool = False,
+    timeit: bool = True,
 ) -> None:
     """Build and optionally execute a single `lar` command."""
     cmd_tokens = [
         'lar',
-        f'-c {cfg_file}',
+        f'-c {shlex.quote(cfg_file)}',
         src_file_opt,
         nev_opt,
         skip_events_opt,
@@ -494,6 +496,9 @@ def run_lar_stage(
         out_root_opt,
         out_tfs_opt,
     ]
+
+    if timeit:
+        cmd_tokens = ['/usr/bin/time', '-v'] + cmd_tokens
     cmd_line = ' '.join(t for t in cmd_tokens if t)
     if use_gdb:
         cmd_line = f"{_GDB_PREFIX} {cmd_line}"
@@ -537,6 +542,7 @@ def run_loop_stage(
     dry_run: bool,
     first_event_opt: str = "",
     use_gdb: bool = False,
+    timeit: bool = True,
 ) -> str:
     """
     Execute a loop stage: run `lar` n_step times with per-step FCLs.
@@ -558,7 +564,7 @@ def run_loop_stage(
     if skip_step > 0:
         last_skipped_dir  = f"{out_dir}/step_{skip_step - 1:0{n_digits}d}"
         last_skipped_root = f"{last_skipped_dir}/{stage_name}_{pipeline_name}.root"
-        step_src_opt = f"-s {last_skipped_root}"
+        step_src_opt = f"-s {shlex.quote(last_skipped_root)}"
         _check_input_files([last_skipped_root], dry_run)
         _print(
             f"  [dim]\u23e9 skipping steps [bold]0..{skip_step - 1}[/bold]; "
@@ -590,7 +596,7 @@ def run_loop_stage(
         # --- FCL generation ---
         if gen_cmd_tmpl is not None:
             gen_cmd      = gen_cmd_tmpl.format(gen_idx=i, loop_index=LOOP_INDEX_MARKER)
-            full_gen_cmd = f"{gen_cmd} {template_path} > {step_fcl}"
+            full_gen_cmd = f"{gen_cmd} {shlex.quote(template_path)} > {shlex.quote(step_fcl)}"
             _print(f"  [step {i}] [cyan]gen[/cyan] (cmd): {full_gen_cmd}")
             if not dry_run:
                 proc = subprocess.Popen(
@@ -616,18 +622,23 @@ def run_loop_stage(
             if not dry_run:
                 with open(template_path, "r", encoding="utf-8") as fh:
                     content = fh.read()
+                if i == skip_step and LOOP_INDEX_MARKER not in content:
+                    _warn(
+                        f"stage '[bold]{stage_name}[/bold]': template '[bold]{template}[/bold]' "
+                        f"does not contain '{LOOP_INDEX_MARKER}' — all step FCLs will be identical."
+                    )
                 content = content.replace(LOOP_INDEX_MARKER, str(i))
                 with open(step_fcl, "w", encoding="utf-8") as fh:
                     fh.write(content)
 
         # --- lar invocation ---
         out_root_opt = (
-            f"-o {step_root}"
+            f"-o {shlex.quote(step_root)}"
             if (not (is_last_stage and step_is_last)) or keep_last_art_file
             else ''
         )
         out_tfs_opt = (
-            f"-T {step_hist}"
+            f"-T {shlex.quote(step_hist)}"
             if (not (is_last_stage and step_is_last)) or keep_last_hist_file
             else ''
         )
@@ -646,6 +657,7 @@ def run_loop_stage(
             prefix=f"  [step {i}] ",
             first_event_opt=first_event_opt if i == skip_step else '',
             use_gdb=use_gdb,
+            timeit=timeit,
         )
 
         if delete_inter and prev_root_file is not None and not dry_run:
@@ -655,7 +667,7 @@ def run_loop_stage(
 
         prev_root_file = step_root
         prev_hist_file = step_hist
-        step_src_opt   = f"-s {step_root}"
+        step_src_opt   = f"-s {shlex.quote(step_root)}"
 
     if not dry_run:
         os.chdir(out_dir)
@@ -734,6 +746,8 @@ def parse_args() -> argparse.Namespace:
                    help="Print the pipeline summary table and exit")
     p.add_argument("-g", "--gdb", action="store_true",
                    help="Run lar inside gdb (catch throw + run)")
+    p.add_argument("--no-timeit", action="store_true",
+                   help="Disable /usr/bin/time -v wrapping around lar calls")
     p.add_argument("-p", "--param", metavar="KEY=VALUE", action="append",
                    default=[], dest="params",
                    help="Override a config parameter (dot notation, repeatable)")
@@ -768,6 +782,13 @@ def load_pipeline_config(config_arg: str, params: List[str]) -> PipelineConfig:
         _error("'sequence' must be a list/array in the config.")
         sys.exit(1)
 
+    for sname, sdef in stages.items():
+        if isinstance(sdef, dict):
+            n_step = int(sdef.get("n_step", 1))
+            if n_step < 1:
+                _error(f"stage '[bold]{sname}[/bold]': 'n_step' must be >= 1, got {n_step}.")
+                sys.exit(1)
+
     last_stage = cfg.get("last_stage")
     n_stages   = len(sequence)
     first_event = cfg.get("first_event")
@@ -791,17 +812,14 @@ def load_pipeline_config(config_arg: str, params: List[str]) -> PipelineConfig:
     )
 
 
-def run_pipeline(cfg: PipelineConfig, dry_run: bool, use_gdb: bool) -> None:
+def run_pipeline(cfg: PipelineConfig, dry_run: bool, use_gdb: bool, timeit: bool = True) -> None:
     """Execute the pipeline stage sequence."""
     base_dir      = os.getcwd()
     out_root_file = ""
 
     for i, s in enumerate(cfg.sequence):
         is_last_stage = (i == cfg.last_stage_run)
-        # keep_last_* flags suppress output only at the true end of the full
-        # sequence. If last_stage is explicitly set, all stages write their
-        # output files unconditionally.
-        apply_keep_flags = is_last_stage and cfg.last_stage is None
+        apply_keep_flags = is_last_stage
 
         stage_def = cfg.stages.get(s)
         if stage_def is None:
@@ -829,7 +847,7 @@ def run_pipeline(cfg: PipelineConfig, dry_run: bool, use_gdb: bool) -> None:
             check_lists  = cfg.input_file_lists
         else:
             nev_opt         = "-n -1"
-            src_file_opt    = f"-s {out_root_file}"
+            src_file_opt    = f"-s {shlex.quote(out_root_file)}"
             skip_events_opt = ''
             check_direct    = [out_root_file]
             check_lists     = []
@@ -854,41 +872,47 @@ def run_pipeline(cfg: PipelineConfig, dry_run: bool, use_gdb: bool) -> None:
                 _print(f"  [green]\u271a Created:[/green] {out_dir}")
             os.chdir(out_dir)
 
-        if is_loop:
-            out_root_file = run_loop_stage(
-                stage_name=s,
-                stage_def=stage_def,
-                pipeline_name=cfg.pipeline_name,
-                out_dir=out_dir,
-                src_file_opt=src_file_opt,
-                nev_opt=nev_opt,
-                is_last_stage=apply_keep_flags,
-                keep_last_art_file=cfg.keep_last_art_file,
-                keep_last_hist_file=cfg.keep_last_hist_file,
-                dry_run=dry_run,
-                first_event_opt=cfg.first_event_opt,
-                use_gdb=use_gdb,
-            )
-        elif isinstance(stage_def, str):
-            out_root_opt = f"-o {out_root_file}" if (not apply_keep_flags or cfg.keep_last_art_file) else ''
-            out_tfs_opt  = f"-T {out_tfs_file}"  if (not apply_keep_flags or cfg.keep_last_hist_file) else ''
-            run_lar_stage(
-                cfg_file=stage_def,
-                src_file_opt=src_file_opt,
-                nev_opt=nev_opt,
-                skip_events_opt=skip_events_opt,
-                out_root_opt=out_root_opt,
-                out_tfs_opt=out_tfs_opt,
-                dry_run=dry_run,
-                first_event_opt=cfg.first_event_opt,
-                use_gdb=use_gdb,
-            )
-        else:
-            _error(
-                f"stage '[bold]{s}[/bold]' has unsupported definition type "
-                f"({type(stage_def).__name__}). Expected str or dict."
-            )
-            sys.exit(1)
+        try:
+            if is_loop:
+                out_root_file = run_loop_stage(
+                    stage_name=s,
+                    stage_def=stage_def,
+                    pipeline_name=cfg.pipeline_name,
+                    out_dir=out_dir,
+                    src_file_opt=src_file_opt,
+                    nev_opt=nev_opt,
+                    is_last_stage=apply_keep_flags,
+                    keep_last_art_file=cfg.keep_last_art_file,
+                    keep_last_hist_file=cfg.keep_last_hist_file,
+                    dry_run=dry_run,
+                    first_event_opt=cfg.first_event_opt,
+                    use_gdb=use_gdb,
+                    timeit=timeit,
+                )
+            elif isinstance(stage_def, str):
+                out_root_opt = f"-o {shlex.quote(out_root_file)}" if (not apply_keep_flags or cfg.keep_last_art_file) else ''
+                out_tfs_opt  = f"-T {shlex.quote(out_tfs_file)}"  if (not apply_keep_flags or cfg.keep_last_hist_file) else ''
+                run_lar_stage(
+                    cfg_file=stage_def,
+                    src_file_opt=src_file_opt,
+                    nev_opt=nev_opt,
+                    skip_events_opt=skip_events_opt,
+                    out_root_opt=out_root_opt,
+                    out_tfs_opt=out_tfs_opt,
+                    dry_run=dry_run,
+                    first_event_opt=cfg.first_event_opt,
+                    use_gdb=use_gdb,
+                    timeit=timeit,
+                )
+            else:
+                _error(
+                    f"stage '[bold]{s}[/bold]' has unsupported definition type "
+                    f"({type(stage_def).__name__}). Expected str or dict."
+                )
+                sys.exit(1)
+        except subprocess.CalledProcessError as exc:
+            _error(f"stage '[bold]{s}[/bold]' failed (exit code {exc.returncode}).")
+            sys.exit(exc.returncode)
 
 
 # ----------------------------
@@ -905,7 +929,7 @@ def main() -> None:
     if args.summary:
         return
 
-    run_pipeline(cfg, args.dry_run, args.gdb)
+    run_pipeline(cfg, args.dry_run, args.gdb, timeit=not args.no_timeit)
 
 
 if __name__ == "__main__":
