@@ -1,0 +1,1 @@
+ lar -c eventdump.fcl "$@" 

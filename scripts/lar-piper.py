@@ -24,6 +24,7 @@ import shutil
 import sys
 import subprocess
 import pathlib
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -466,6 +467,68 @@ def _print_summary(cfg: PipelineConfig) -> None:
 
 
 # ----------------------------
+# Timing helpers
+# ----------------------------
+
+def _fmt_duration(seconds: float) -> str:
+    """Format a duration as Xh YYm ZZs (or shorter when leading units are zero)."""
+    h = int(seconds // 3600)
+    m = int((seconds % 3600) // 60)
+    s = int(seconds % 60)
+    if h > 0:
+        return f"{h}h {m:02d}m {s:02d}s"
+    if m > 0:
+        return f"{m}m {s:02d}s"
+    return f"{s}s"
+
+
+def _print_stage_timing(name: str, stage_secs: float, total_secs: float) -> None:
+    stage_str = _fmt_duration(stage_secs)
+    total_str = _fmt_duration(total_secs)
+    if _RICH:
+        _console.print(
+            f"  [dim]⏱  {name} done in "
+            f"[bold white]{stage_str}[/bold white]"
+            f"  (pipeline total: [bold white]{total_str}[/bold white])[/dim]"
+        )
+    else:
+        print(f"  ⏱  {name} done in {stage_str}  (pipeline total: {total_str})")
+
+
+def _print_timing_summary(stage_times: List[Tuple[str, float]]) -> None:
+    if not stage_times:
+        return
+    total_secs = sum(secs for _, secs in stage_times)
+    cumulative  = 0.0
+
+    if _RICH:
+        _console.print()
+        _console.rule("[bold]Timing summary[/bold]", style="dim white", align="left")
+        tbl = Table(show_header=True, box=_rich_box.SIMPLE)
+        tbl.add_column("Stage",      style="bold",     no_wrap=True)
+        tbl.add_column("Duration",   style="cyan",     justify="right")
+        tbl.add_column("Cumulative", style="dim cyan", justify="right")
+        for name, secs in stage_times:
+            cumulative += secs
+            tbl.add_row(name, _fmt_duration(secs), _fmt_duration(cumulative))
+        tbl.add_section()
+        tbl.add_row("[bold]TOTAL[/bold]", f"[bold]{_fmt_duration(total_secs)}[/bold]", "")
+        _console.print(tbl)
+    else:
+        col = 22
+        print("\nTiming summary")
+        print("-" * (col + 28))
+        print(f"  {'Stage':<{col}} {'Duration':>10}  {'Cumulative':>10}")
+        print("  " + "-" * (col + 24))
+        for name, secs in stage_times:
+            cumulative += secs
+            print(f"  {name:<{col}} {_fmt_duration(secs):>10}  {_fmt_duration(cumulative):>10}")
+        print("  " + "-" * (col + 24))
+        print(f"  {'TOTAL':<{col}} {_fmt_duration(total_secs):>10}")
+        print()
+
+
+# ----------------------------
 # Stage execution helpers
 # ----------------------------
 
@@ -814,6 +877,8 @@ def load_pipeline_config(config_arg: str, params: List[str]) -> PipelineConfig:
 
 def run_pipeline(cfg: PipelineConfig, dry_run: bool, use_gdb: bool, timeit: bool = True) -> None:
     """Execute the pipeline stage sequence."""
+    pipeline_start = time.monotonic()
+    stage_times: List[Tuple[str, float]] = []
     base_dir      = os.getcwd()
     out_root_file = ""
 
@@ -862,6 +927,8 @@ def run_pipeline(cfg: PipelineConfig, dry_run: bool, use_gdb: bool, timeit: bool
         if i > cfg.last_stage_run:
             _print(f"  [dim]\u23e9 skipped (after last_stage)[/dim]")
             continue
+
+        stage_start = time.monotonic()
 
         _check_input_files(check_direct, dry_run)
         _check_input_file_lists(check_lists, dry_run)
@@ -913,6 +980,15 @@ def run_pipeline(cfg: PipelineConfig, dry_run: bool, use_gdb: bool, timeit: bool
         except subprocess.CalledProcessError as exc:
             _error(f"stage '[bold]{s}[/bold]' failed (exit code {exc.returncode}).")
             sys.exit(exc.returncode)
+
+        if not dry_run:
+            stage_secs = time.monotonic() - stage_start
+            total_secs = time.monotonic() - pipeline_start
+            stage_times.append((s, stage_secs))
+            _print_stage_timing(s, stage_secs, total_secs)
+
+    if not dry_run:
+        _print_timing_summary(stage_times)
 
 
 # ----------------------------
